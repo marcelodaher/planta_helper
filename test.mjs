@@ -1,13 +1,22 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { solve, engineList } from "./generator.mjs";
-import { validateLayout, validateLoose } from "./layout.mjs";
+import { validateLayout, validateLoose, contactGraph } from "./layout.mjs";
 import { samples } from "./samples.mjs";
 
 // Keep the suite fast; quality measurements live in `npm run bench`.
 process.env.PLANTA_SOLVE_SECONDS ??= "3";
 
 const area = layout => layout.reduce((sum, room) => sum + room.w * room.h, 0);
+
+// The contact graph keeps topology and ignores where the rooms sit or how big they are.
+const graphOne = [
+  { room: "a", x: 0, y: 0, w: 10, h: 10 },
+  { room: "b", x: 10, y: 0, w: 10, h: 10 },
+];
+assert.equal(contactGraph(graphOne), "a|b");
+assert.equal(contactGraph(graphOne.map(room => ({ ...room, x: room.x + 50, y: room.y + 30 }))), "a|b");
+assert.equal(contactGraph([...graphOne, { room: "c", x: 0, y: 10, w: 10, h: 10 }]), "a|b;a|c");
 
 // Every engine must return complete, valid tilings on every sample.
 for (const engine of engineList) {
@@ -153,6 +162,18 @@ for (const engine of engineList) {
       `casa_prado/${engine.id} should answer every objective`,
     );
   }
+  // Every alternative is a valid plant with a topology not already on screen.
+  const shownGraphs = new Set(result.options.filter(option => option.layout).map(option => contactGraph(option.layout)));
+  const alternativeGraphs = new Set();
+  for (const alternative of result.alternatives) {
+    assert.equal(validateLoose(alternative.layout, prado.input.rooms), "", `casa_prado/${engine.id}/${alternative.id}`);
+    assert(alternative.bounds, `casa_prado/${engine.id}/${alternative.id} should report bounds`);
+    const graph = contactGraph(alternative.layout);
+    assert(!shownGraphs.has(graph), `casa_prado/${engine.id}/${alternative.id} repeats an option`);
+    assert(!alternativeGraphs.has(graph), `casa_prado/${engine.id}/${alternative.id} repeats a topology`);
+    alternativeGraphs.add(graph);
+  }
+  if (engine.id === "loose") assert(result.alternatives.length > 0, "casa_prado/loose should offer alternatives");
   const [smallest, largest] = result.options;
   if (smallest.layout && largest.layout) {
     assert(boxArea(smallest) <= boxArea(largest), `casa_prado/${engine.id} should keep min <= max`);

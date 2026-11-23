@@ -106,6 +106,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, .file-button:fo
 @keyframes spin { to { transform: rotate(360deg); } }
 .option { margin: 16px 0; padding: 24px; border: 1px solid #e0e5dd; border-radius: 16px; background: white; }
 .option h2 { margin-bottom: 4px; }
+.alternatives { margin-top: 32px; padding-top: 8px; border-top: 2px solid #dbe2dc; }
+.alternatives > h2 { margin-bottom: 4px; }
+.alternatives > .secondary { display: block; width: 100%; }
 .meta { margin: 0 0 16px; font-size: .9rem; }
 .plan { position: relative; margin: 12px auto; border: 2px solid #34483d; background-color: #fff; background-image: linear-gradient(#edf1ed 1px, transparent 1px), linear-gradient(90deg, #edf1ed 1px, transparent 1px); background-size: 20px 20px; overflow: hidden; }
 .compass { position: absolute; top: 6px; left: 6px; z-index: 2; padding: 1px 6px; border-radius: 5px; background: #ffffffe0; color: #4b5c53; font-size: .7rem; font-weight: 650; letter-spacing: .04em; pointer-events: none; }

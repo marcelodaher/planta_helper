@@ -1,4 +1,4 @@
-import { cells, validateLayout, validateLoose, sharedWall, bounds, MAX_ASPECT, MIN_DOOR } from "./layout.mjs";
+import { cells, validateLayout, validateLoose, sharedWall, bounds, contactGraph, MAX_ASPECT, MIN_DOOR } from "./layout.mjs";
 
 // Outer rectangles are tried in objective order; the first valid tiling wins.
 const ASPECTS = [1, 1.2, 0.8, 1.45, 0.65, 1.8, 0.55, 2.4, 0.4];
@@ -9,6 +9,7 @@ const SCALES = {
 };
 const BRANCH_BUDGET = 4000;
 const MAX_BRANCH = 6;
+const MAX_CANDIDATES = 12; // distinct contact graphs kept per objective
 
 // Target area per room, in cells.
 function targetMap(rooms, objective) {
@@ -143,17 +144,18 @@ function solveWithTree(tree, rooms, objective) {
 }
 
 // Guillotine engines are fast but cannot express a corridor with many doors;
-// when the tree finds no tiling they fall back to the placement heuristic.
+// when the tree finds no tiling they reuse the precomputed loose plant or walk for one.
 function engine(id, label, description, build) {
   return {
     id,
     label,
     description,
     validate: validateLoose,
-    solve(rooms, objective) {
+    solve(rooms, objective, hint) {
       const targets = targetMap(rooms, objective);
       const layout = solveWithTree(build(rooms, targets), rooms, objective);
       if (layout) return { status: "heuristic", layout };
+      if (hint?.layout) return { status: "loose", layout: hint.layout };
       return looseSolve(rooms, objective);
     },
   };
@@ -338,12 +340,15 @@ function fitFacades(layout, rooms) {
   return work;
 }
 
-// Loose engine: accepts L-shaped or irregular footprints, not only a tight rectangle.
-// It iterates over orderings, first-room shapes and scales, returning the first believable layout.
-function looseSolve(rooms, objective) {
+// Walk orderings, first-room shapes and scales, keeping the cheapest valid plant
+// per contact graph and stopping at a time budget. The ranked list is the pool of
+// alternatives; the first entry is the plant the loose engine returns.
+export function collectLoose(rooms, objective, budget = 300) {
   const targets = targetMap(rooms, objective);
   const scales = objective === "max" ? [1.25, 1.12, 1, 0.9, 0.8] : [0.75, 0.8, 0.9, 1, 1.12];
-  let fallback = null;
+  const deadline = Date.now() + budget;
+  const best = new Map();
+  let expired = false;
   for (const order of looseOrderings(rooms)) {
     const first = order[0];
     const shapes = firstShapes(first, targets.get(first.name))
@@ -355,12 +360,30 @@ function looseSolve(rooms, objective) {
         if (!placed) continue;
         const layout = fitFacades(placed, rooms);
         if (validateLoose(layout, rooms) !== "") continue;
-        if (aspect(layout) <= MAX_ASPECT) return { status: "loose", layout };
-        fallback ??= layout;
+        const graph = contactGraph(layout);
+        const cost = layoutCost(layout, rooms, objective) + (aspect(layout) > MAX_ASPECT ? 1e6 : 0);
+        const known = best.get(graph);
+        if (!known || cost < known.cost) best.set(graph, { layout, cost });
+        if (best.size && Date.now() > deadline) {
+          expired = true;
+          break;
+        }
       }
+      if (expired) break;
     }
+    if (expired || best.size >= MAX_CANDIDATES) break;
   }
-  return fallback ? { status: "loose", layout: fallback } : { status: "failed", layout: null };
+  const ranked = [...best.values()].sort((a, b) => a.cost - b.cost).map(entry => entry.layout);
+  const believable = ranked.filter(layout => aspect(layout) <= MAX_ASPECT);
+  return believable.length ? believable : ranked.slice(0, 1);
+}
+
+// Loose engine: the best plant from the walk; the remaining topologies are exhibitions.
+// A hint is already the best plant of that walk, so it avoids a second pass.
+function looseSolve(rooms, objective, hint) {
+  if (hint?.layout) return { status: "loose", layout: hint.layout };
+  const [layout] = collectLoose(rooms, objective);
+  return layout ? { status: "loose", layout } : { status: "failed", layout: null };
 }
 
 export const looseEngine = {

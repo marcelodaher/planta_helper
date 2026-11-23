@@ -35,6 +35,18 @@ export function sharedWall(a, b) {
   return 0;
 }
 
+// Canonical contact graph: one labelled edge per pair that shares a door-width wall.
+// Translation, rotation and room resizing keep the signature; a new or missing
+// contact produces a different plan topology.
+export function contactGraph(layout) {
+  return layout
+    .flatMap((a, i) => layout.slice(i + 1)
+      .filter(b => sharedWall(a, b) >= MIN_DOOR)
+      .map(b => [a.room, b.room].sort().join("|")))
+    .sort()
+    .join(";");
+}
+
 // True when another room fully covers this edge of the room.
 function edgeCovered(room, side, others) {
   const vertical = side === "left" || side === "right";

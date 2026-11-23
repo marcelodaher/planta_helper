@@ -18,6 +18,11 @@ let roomData = [];
 let editingIndex = null;
 let dragIndex = null;
 let removedRooms = null;
+// Bottom gallery: extra topologies revealed a batch at a time.
+const ALTERNATIVE_BATCH = 4;
+let bestOptions = [];
+let alternatives = [];
+let shownAlternatives = 0;
 
 // Fill the engine dropdown from the shared registry.
 engineSelect.innerHTML = engineList.map(engine =>
@@ -273,13 +278,36 @@ function loadInput(input) {
   message.textContent = "Entradas carregadas. Você pode editar e gerar opções.";
 }
 
-// Display options produced by the shared engine.
-function showOptions(options) {
-  results.innerHTML = options.map(render).join("");
-  message.textContent = options.some(option => option.layout)
+// Display the three best options, then the revealed share of the bottom gallery.
+function showOptions(options, others = []) {
+  bestOptions = options;
+  alternatives = others;
+  shownAlternatives = Math.min(ALTERNATIVE_BATCH, alternatives.length);
+  renderResults();
+  message.textContent = options.some(option => option.layout) || alternatives.length
     ? "Opções geradas. Ajuste as entradas se quiser explorar outros arranjos."
     : "Não encontramos opções. Tente relaxar as restrições ou adicionar conexões.";
 }
+
+// Render the best options plus the alternatives already requested by the button.
+function renderResults() {
+  const more = alternatives.length ? `<section class="alternatives" aria-label="Outras opções">
+    <h2>Outras opções</h2>
+    <p class="meta">O mesmo programa com outras paredes compartilhadas; cada arranjo tem um grafo de contatos diferente.</p>
+    ${alternatives.slice(0, shownAlternatives).map(render).join("")}
+    ${shownAlternatives < alternatives.length
+      ? `<button id="more-options" type="button" class="secondary">Mostrar mais opções (${shownAlternatives} de ${alternatives.length})</button>`
+      : ""}
+  </section>` : "";
+  results.innerHTML = bestOptions.map(render).join("") + more;
+}
+
+// The gallery is re-rendered wholesale, so listen on the results container.
+results.addEventListener("click", event => {
+  if (!event.target.closest("#more-options")) return;
+  shownAlternatives = Math.min(shownAlternatives + ALTERNATIVE_BATCH, alternatives.length);
+  renderResults();
+});
 
 const STATUS_LABELS = {
   optimal: "ótimo comprovado",
@@ -418,7 +446,7 @@ document.querySelector("#planner").addEventListener("submit", async event => {
       message.textContent = result.error;
       return;
     }
-    showOptions(result.options);
+    showOptions(result.options, result.alternatives ?? []);
   } catch (error) {
     message.textContent = `Não foi possível calcular: ${error.message}`;
   } finally {

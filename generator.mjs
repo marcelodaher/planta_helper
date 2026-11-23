@@ -1,6 +1,6 @@
 import { CpModel, CpSat, LinearExpr } from "cp-sat-wasm";
-import { FACADES, GRID, MAX_ASPECT, MIN_DOOR, OBJECTIVES, cells, touchesExterior, validateLayout, validateLoose } from "./layout.mjs";
-import { greedyEngine, cutEngine, looseEngine } from "./engines.mjs";
+import { FACADES, GRID, MAX_ASPECT, MIN_DOOR, OBJECTIVES, bounds, cells, contactGraph, touchesExterior, validateLayout, validateLoose } from "./layout.mjs";
+import { greedyEngine, cutEngine, looseEngine, collectLoose } from "./engines.mjs";
 
 // Time limit per objective: bigger houses need more search; tests shorten it.
 const SOLVE_MAX_SECONDS = 30;
@@ -209,7 +209,7 @@ const looseRectEngine = {
     if (tight.layout && validateLayout(tight.layout, rooms) === "") return tight;
     const exact = await cpSatSolve(rooms, objective, { loose: true, hint, seconds: budget });
     if (exact.layout && validateLoose(exact.layout, rooms) === "") return exact;
-    return looseEngine.solve(rooms, objective);
+    return looseEngine.solve(rooms, objective, hint);
   },
 };
 
@@ -223,6 +223,18 @@ export const engines = {
 
 export const engineList = Object.values(engines);
 
+// Add the room flags and bounding box the page needs.
+function annotate(layout, rooms, boundsBox) {
+  // Carry the void flag so touchesExterior can treat open areas as outside.
+  const flags = new Map(rooms.map(room => [room.name, Boolean(room.void)]));
+  const merged = layout.map(room => ({ ...room, void: flags.get(room.room) ?? false }));
+  return {
+    layout: merged.map(room => ({ ...room, touchesExterior: touchesExterior(room, merged) })),
+    // Heuristic engines do not report an exterior rectangle; use the rooms' bounding box.
+    bounds: boundsBox ?? bounds(merged),
+  };
+}
+
 // Run one engine, then validate and annotate the layout.
 // Seeds are tried in order until one engine run returns a layout.
 async function finalize(engine, rooms, objective, seeds = []) {
@@ -231,28 +243,11 @@ async function finalize(engine, rooms, objective, seeds = []) {
     if (result.layout) break;
     result = await engine.solve(rooms, objective, seed);
   }
-  const { status, layout, bounds } = result;
+  const { status, layout, bounds: box } = result;
   if (!layout) return { status, layout: null };
   const error = engine.validate(layout, rooms);
   if (error) return { status: "failed", layout: null, error };
-  // Carry the void flag so touchesExterior can treat open areas as outside.
-  const flags = new Map(rooms.map(room => [room.name, Boolean(room.void)]));
-  const merged = layout.map(room => ({ ...room, void: flags.get(room.room) ?? false }));
-  // Heuristic engines do not report an exterior rectangle; use the rooms' bounding box.
-  const box = bounds ?? merged.reduce((box, room) => ({
-    minX: Math.min(box.minX, room.x),
-    minY: Math.min(box.minY, room.y),
-    maxX: Math.max(box.maxX, room.x + room.w),
-    maxY: Math.max(box.maxY, room.y + room.h),
-  }), { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
-  return {
-    status,
-    layout: merged.map(room => ({
-      ...room,
-      touchesExterior: touchesExterior(room, merged),
-    })),
-    bounds: box,
-  };
+  return { status, ...annotate(layout, rooms, box) };
 }
 
 // Whole-house area: the exterior rectangle when the engine reports one, else the rooms.
@@ -260,19 +255,50 @@ const optionArea = option => option.bounds
   ? (option.bounds.maxX - option.bounds.minX) * (option.bounds.maxY - option.bounds.minY)
   : option.layout.reduce((sum, room) => sum + room.w * room.h, 0);
 
-// Cheap heuristic layout, used as the first hint for the exact engines.
-function seedHint(rooms, objective) {
-  const { layout } = looseEngine.solve(rooms, objective);
-  return layout ? { layout } : null;
+// Alternatives: the loose walk is the shared store of different plan topologies.
+const ALTERNATIVES_BUDGET = 150;
+const MAX_ALTERNATIVES = 24;
+
+// Round-robin the walk's other topologies across objectives, skipping any graph
+// already shown as one of the three best options.
+function gallery(options, found, rooms) {
+  const seen = new Set(options.filter(option => option.layout).map(option => contactGraph(option.layout)));
+  const longest = Math.max(0, ...[...found.values()].map(layouts => layouts.length));
+  const picked = [];
+  for (let index = 0; index < longest && picked.length < MAX_ALTERNATIVES; index++) {
+    for (const [objective, layouts] of found) {
+      const layout = layouts[index];
+      if (!layout) continue;
+      const graph = contactGraph(layout);
+      if (seen.has(graph)) continue;
+      seen.add(graph);
+      picked.push({ objective, layout });
+      if (picked.length >= MAX_ALTERNATIVES) break;
+    }
+  }
+  return picked.map(({ objective, layout }, index) => ({
+    id: `alt_${index + 1}`,
+    label: `Alternativa · ${OBJECTIVES.find(item => item.id === objective)?.label ?? objective}`,
+    objective,
+    // The plant comes from the loose walk, whatever engine produced the main options.
+    engine: looseEngine.id,
+    status: "loose",
+    ...annotate(layout, rooms),
+  }));
 }
 
 export async function generateOptions({ rooms, engine = "cp-sat" }) {
   const chosen = engines[engine] ?? cpSatEngine;
   const options = [];
   const carried = [];
+  const found = new Map(OBJECTIVES.map(objective => [objective.id, []]));
   for (const objective of OBJECTIVES) {
-    // Seed with the heuristic for this objective, then with the previous exact layout.
-    const seeds = chosen.exact ? [seedHint(rooms, objective.key), ...carried].filter(Boolean) : [];
+    // The loose walk both seeds the exact engines and supplies the alternatives.
+    const candidates = collectLoose(rooms, objective.key, ALTERNATIVES_BUDGET);
+    found.get(objective.id).push(...candidates);
+    // The best heuristic plant seeds the exact model and is the heuristic fallback;
+    // the previous exact layout is the second hint.
+    const seeds = [candidates[0] ? { layout: candidates[0] } : null, ...carried].filter(Boolean);
     const option = {
       id: objective.id,
       label: objective.label,
@@ -288,7 +314,7 @@ export async function generateOptions({ rooms, engine = "cp-sat" }) {
     options[0] = { ...smallest, layout: largest.layout, bounds: largest.bounds, status: largest.status };
     options[1] = { ...largest, layout: smallest.layout, bounds: smallest.bounds, status: smallest.status };
   }
-  return options;
+  return { options, alternatives: gallery(options, found, rooms) };
 }
 
 export function validate(rooms) {
@@ -334,5 +360,5 @@ export async function solve(input) {
   const error = validate(rooms);
   if (error) return { ok: false, error };
   const engine = engines[input.engine] ? input.engine : "cp-sat";
-  return { ok: true, engine, options: await generateOptions({ rooms, engine }) };
+  return { ok: true, engine, ...(await generateOptions({ rooms, engine })) };
 }
