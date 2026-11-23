@@ -126,3 +126,45 @@ button:focus-visible, input:focus-visible, select:focus-visible, .file-button:fo
 footer { margin: 32px 0; color: #748079; font-size: .8rem; }
 @media (max-width: 850px) { .layout { grid-template-columns: 1fr; } .sidebar { position: static; } }
 @media (max-width: 600px) { main { margin: 28px auto; } .panel, .option { padding: 16px; } .section-heading { align-items: flex-start; flex-direction: column; } .file-actions { flex-wrap: wrap; } .room-dimensions { grid-template-columns: 1fr; } }
+
+/* Dark theme: page surfaces go dark; plans and graphs keep light paper so the
+   room palette stays legible. */
+.theme-switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.theme-switch input { appearance: none; -webkit-appearance: none; position: relative; flex: none; width: 44px; height: 24px; margin: 0; padding: 0; border: 1px solid #cbd4cc; border-radius: 999px; background: #dde5df; cursor: pointer; transition: background .15s, border-color .15s; }
+.theme-switch input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px #0003; transition: transform .15s; }
+.theme-switch input:checked { background: #27654b; border-color: #27654b; }
+.theme-switch input:checked::after { transform: translateX(22px); }
+html[data-theme="dark"] .theme-switch input { background: #2b3731; border-color: #3a4842; }
+html[data-theme="dark"] .theme-switch input::after { background: #cfdad3; }
+html[data-theme="dark"] .theme-switch input:checked { background: #427662; border-color: #427662; }
+html[data-theme="dark"] .theme-switch input:checked::after { background: #fff; }
+html[data-theme="dark"] { color-scheme: dark; color: #e3e9e5; background: #141a17; }
+html[data-theme="dark"] p,
+html[data-theme="dark"] .room-summary small,
+html[data-theme="dark"] .meta,
+html[data-theme="dark"] footer,
+html[data-theme="dark"] .engine-picker p,
+html[data-theme="dark"] .section-heading p { color: #9db0a6; }
+html[data-theme="dark"] .eyebrow { color: #8fc8aa; }
+html[data-theme="dark"] .panel,
+html[data-theme="dark"] .option,
+html[data-theme="dark"] dialog { background: #1b2420; border-color: #2b3731; }
+html[data-theme="dark"] .sidebar hr,
+html[data-theme="dark"] fieldset,
+html[data-theme="dark"] .alternatives { border-color: #2b3731; }
+html[data-theme="dark"] input,
+html[data-theme="dark"] select { background: #141a17; border-color: #3a4842; color: inherit; }
+html[data-theme="dark"] .secondary { color: #bfe3cf; background: #22322b; border-color: #2f463c; }
+html[data-theme="dark"] .secondary:hover { background: #2a3d34; border-color: #3f5b4c; }
+html[data-theme="dark"] .split select { background: #22322b; border-color: #2f463c; }
+html[data-theme="dark"] .split::after { color: #bfe3cf; }
+html[data-theme="dark"] .remove-dropzone { border-color: #8a4c4c; color: #e6a9a9; }
+html[data-theme="dark"] .remove-dropzone.drag-over { background: #2a1c1c; }
+html[data-theme="dark"] .busy-overlay { background: rgba(20, 26, 23, .8); }
+html[data-theme="dark"] .busy-spinner { border-color: #3a4842; border-top-color: #8fc8aa; }
+/* The colour chips keep their pastel fill, so their text stays dark. */
+html[data-theme="dark"] .room-list li { border-color: #2b3731; color: #202b27; }
+html[data-theme="dark"] .room-list li:hover,
+html[data-theme="dark"] .room-list li:focus-visible { border-color: #4b8d6c; }
+html[data-theme="dark"] .room-list .room-summary small { color: #4b5c53; }
+html[data-theme="dark"] .plan { color: #202b27; }

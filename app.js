@@ -32,6 +32,20 @@ engineSelect.addEventListener("change", () => {
 });
 engineDescription.textContent = engineList[0].description;
 
+// Theme: index.html picks the saved or system theme before first paint; the
+// switch flips it and remembers the choice. Diagrams keep light paper.
+const themeToggle = document.querySelector("#theme-toggle");
+function applyTheme(dark) {
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  themeToggle.checked = dark;
+}
+applyTheme(document.documentElement.dataset.theme === "dark");
+themeToggle.addEventListener("change", () => {
+  const dark = themeToggle.checked;
+  try { localStorage.setItem("planta-theme", dark ? "dark" : "light"); } catch {}
+  applyTheme(dark);
+});
+
 // Show a full-page wait overlay while work is running.
 function setBusy(text) {
   document.querySelector("#busy-text").textContent = text;

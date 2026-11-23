@@ -6,6 +6,13 @@
     <meta name="description" content="Explore opções de plantas residenciais retangulares.">
     <title>Planta Helper</title>
     <link rel="stylesheet" href="style.css">
+    <script>
+      // Choose the theme before the first paint; the toggle persists a choice.
+      try {
+        document.documentElement.dataset.theme = localStorage.getItem("planta-theme") ??
+          (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      } catch {}
+    </script>
     <script type="importmap">{"imports":{"cp-sat-wasm":"./node_modules/cp-sat-wasm/build/javascript/browser/cp-sat.js"}}</script>
     <script type="module" src="app.js"></script>
   </head>
@@ -43,6 +50,11 @@
             <hr>
             <h3>Conexões</h3>
             <div id="connection-graph" class="graph-preview" role="button" tabindex="0" aria-label="Ampliar grafo de conexões"></div>
+            <hr>
+            <label class="theme-switch">
+              <span>Tema escuro</span>
+              <input id="theme-toggle" type="checkbox" role="switch">
+            </label>
           </section>
         </aside>
 

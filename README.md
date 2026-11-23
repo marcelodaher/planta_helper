@@ -1,7 +1,7 @@
 # Planta Helper
 
 Protótipo estático; o motor geométrico (`generator.mjs`) usa OR-Tools CP-SAT em WebAssembly e roda no navegador ou no Node. Um motor heurístico puro em JavaScript oferece uma alternativa rápida.
-Na página, os exemplos podem ser carregados e editados. “Salvar arquivo” baixa as entradas como JSON e “Abrir arquivo” as restaura para edição; as opções só são recalculadas ao gerar.
+Na página, os exemplos podem ser carregados e editados. “Salvar arquivo” baixa as entradas como JSON e “Abrir arquivo” as restaura para edição; as opções só são recalculadas ao gerar. A chave “Tema escuro”, no menu à esquerda, alterna o tema; sem escolha salva, a página segue a preferência do sistema.
 
 ## Interface de máquina
 
