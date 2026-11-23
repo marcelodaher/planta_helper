@@ -81,15 +81,15 @@
           </div>
           <label class="inline-check"><input name="exterior" type="checkbox"> Exige contato com a área externa</label>
           <label>Cor
-            <span class="color-picker"><select name="color">
-              <option value="green">Verde</option>
-              <option value="blue">Azul</option>
+            <span class="color-picker"><span id="color-swatch" class="color-swatch" aria-hidden="true"></span><select name="color">
               <option value="yellow">Amarelo</option>
-              <option value="orange">Laranja</option>
-              <option value="purple">Roxo</option>
-              <option value="pink">Rosa</option>
+              <option value="blue">Azul</option>
               <option value="gray">Cinza</option>
-            </select><span id="color-swatch" class="color-swatch" aria-hidden="true"></span></span>
+              <option value="orange">Laranja</option>
+              <option value="pink">Rosa</option>
+              <option value="purple">Roxo</option>
+              <option value="green">Verde</option>
+            </select></span>
           </label>
           <div id="room-dimensions" class="room-dimensions">
             <label>Área mínima (m²)<input name="minArea" type="number" min="0.1" step="0.1" value="8" required></label>

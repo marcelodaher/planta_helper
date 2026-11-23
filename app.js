@@ -1,4 +1,4 @@
-import { solve, engineList } from "./generator.mjs";
+import { solve, validate, engineList } from "./generator.mjs";
 import { samples } from "./samples.mjs";
 
 const roomList = document.querySelector("#rooms");
@@ -48,7 +48,7 @@ function renderRoomList() {
   roomList.innerHTML = roomData.map((room, index) => {
     const tags = [room.corridor && "corredor", room.void && "vazado", room.exterior && "área externa"].filter(Boolean);
     const details = `${room.minArea}–${room.maxArea} m² · lado mínimo ${room.minSide} m${tags.length ? ` · ${tags.join(" · ")}` : ""}`;
-    return `<li draggable="true" tabindex="0" data-index="${index}" aria-label="Editar ${escapeHTML(room.name)}; arraste para reordenar">
+    return `<li class="color-${escapeHTML(room.color ?? "gray")}" draggable="true" tabindex="0" data-index="${index}" aria-label="Editar ${escapeHTML(room.name)}; arraste para reordenar">
       <span class="drag-handle" aria-hidden="true">⠿</span>
       <span class="room-summary"><strong>${escapeHTML(room.name)}</strong><small>${escapeHTML(details)}</small></span>
     </li>`;
@@ -144,7 +144,7 @@ function renderConnectionGraph() {
     <g class="graph-edges">${edges.join("")}</g>
     <g>${points.map(point => {
       const label = point.name.length > 11 ? `${point.name.slice(0, 10)}…` : point.name;
-      return `<circle cx="${point.x}" cy="${point.y}" r="${radius}" fill="${colors[point.color] ?? colors.green}"/><title>${escapeHTML(point.name)}</title>
+      return `<circle cx="${point.x}" cy="${point.y}" r="${radius}" fill="${colors[point.color] ?? colors.gray}"/><title>${escapeHTML(point.name)}</title>
         <text x="${point.x}" y="${point.y}" text-anchor="middle" dominant-baseline="middle">${escapeHTML(label)}</text>`;
     }).join("")}</g>
   </svg>`;
@@ -165,7 +165,7 @@ function renderConnections(room) {
     .join("") || "<p>Adicione outro cômodo para definir conexões.</p>";
 }
 
-// Reflect the selected room color beside the native dropdown.
+// Reflect the selected room color on the swatch inside the dropdown.
 function showColorSample() {
   document.querySelector("#color-swatch").dataset.color = roomForm.elements.color.value;
 }
@@ -181,7 +181,7 @@ function openRoomEditor(index, corridor = false) {
     corridor,
     void: false,
     exterior: !corridor,
-    color: corridor ? "yellow" : "green",
+    color: "gray",
     links: [],
   } : roomData[index];
   roomForm.reset();
@@ -191,7 +191,7 @@ function openRoomEditor(index, corridor = false) {
   roomForm.elements.minSide.value = room.minSide ?? "";
   roomForm.elements.corridor.checked = Boolean(room.corridor);
   roomForm.elements.void.checked = Boolean(room.void);
-  roomForm.elements.color.value = room.color ?? (room.corridor ? "yellow" : "green");
+  roomForm.elements.color.value = room.color ?? "gray";
   showColorSample();
   roomForm.elements.exterior.checked = Boolean(room.exterior);
   document.querySelector("#room-dialog-title").textContent =
@@ -314,7 +314,7 @@ function render(option) {
     <h2>${option.label}</h2>
     <p class="meta">${size} · Motor: ${escapeHTML(engineLabel(option.engine))} · ${escapeHTML(STATUS_LABELS[option.status] ?? option.status)}</p>
     <div class="plan" role="img" aria-label="Planta: ${escapeHTML(layout.map(room => room.room).join(", "))}" style="width:${width}px;height:${height}px">
-      ${layout.map(room => `<div class="room color-${escapeHTML(room.color ?? "green")}${room.void ? " void" : ""}"
+      ${layout.map(room => `<div class="room color-${escapeHTML(room.color ?? "gray")}${room.void ? " void" : ""}"
         style="left:${(room.x-minX)*scale}px;top:${(room.y-minY)*scale}px;width:${room.w*scale}px;height:${room.h*scale}px">
         <strong>${escapeHTML(room.room)}</strong><span>${(room.w/10).toFixed(1)} × ${(room.h/10).toFixed(1)} m · ${(room.w*room.h/100).toFixed(1)} m²${room.touchesExterior ? " · externa" : ""}</span></div>`).join("")}
     </div>
@@ -431,7 +431,6 @@ document.querySelector("#save-file").addEventListener("click", () => {
 document.querySelector("#open-file").addEventListener("change", async event => {
   const file = event.target.files[0];
   if (!file) return;
-  setBusy(`Carregando ${file.name}…`);
   try {
     const saved = JSON.parse(await file.text());
     if (saved.format !== "planta-helper" || ![1, 2, 3].includes(saved.version) || !saved.input) {
@@ -441,14 +440,13 @@ document.querySelector("#open-file").addEventListener("change", async event => {
       engineSelect.value = saved.engine;
       engineSelect.dispatchEvent(new Event("change"));
     }
-    const result = await solve({ ...saved.input, engine: saved.engine ?? engineSelect.value });
-    if (!result.ok) throw new Error(result.error);
+    // Only the inputs are restored; solving is left to the "Gerar opções" button.
     loadInput(saved.input);
-    showOptions(result.options);
+    const error = validate(roomData);
+    if (error) message.textContent = error;
   } catch (error) {
     message.textContent = `Não foi possível abrir o arquivo: ${error.message}`;
   } finally {
-    clearBusy();
     event.target.value = "";
   }
 });
