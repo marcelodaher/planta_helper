@@ -312,7 +312,6 @@ results.addEventListener("click", event => {
 const STATUS_LABELS = {
   optimal: "ótimo comprovado",
   feasible: "melhor encontrado",
-  heuristic: "resultado heurístico",
   loose: "formato livre",
   infeasible: "impossível",
   unknown: "indeterminado",

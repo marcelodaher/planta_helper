@@ -11,7 +11,7 @@ Registro do estado atual dos motores de planta depois da rodada de melhorias.
 | Proporção | livre | `largura <= 3 × altura`; sem isso "maior área" virava uma casa de 4,5:1 |
 | Tempo por objetivo | 5 s fixos | `min(30, max(5, 1,5 × cômodos))`; 12 cômodos → 18 s; `PLANTA_SOLVE_SECONDS` sobrepõe |
 | `loose-rect` | só o modelo exato solto | exato apertado → exato solto → heurístico livre |
-| `greedy` / `cut` | árvore guilhotina ou nada | árvore guilhotina ou busca por posicionamento (status `loose`) |
+| Motores | cinco (dois de árvore guilhotina) | três: `cp-sat`, `loose-rect` e `loose`; `greedy` e `cut` removidos porque nunca venceram o livre (mesma planta no `casa_prado`) |
 | Heurístico livre | primeira planta válida | caminhada de 150 ms por objetivo, uma planta por grafo de contatos, ranqueada pelo custo do objetivo; contorno acima de 3:1 só como último recurso |
 | Medição | nenhuma | `npm run bench` (motor × objetivo: tempo, status, área, caixa, validação) |
 | Alternativas | só as 3 melhores | a caminhada do heurístico livre guarda a melhor planta por grafo de contatos; a página revela as demais em lotes |
@@ -38,9 +38,7 @@ Depois das mudanças, orçamento padrão (18 s por objetivo), com o limite de pr
 |---|---|---|---|---|
 | `cp-sat` | 104,7 m² (11,5×9,1) | **182,0 m² ótimo** (14×13) | 163,8 m² | 47,8 s |
 | `loose-rect` | 105,7 m² | **182,0 m² ótimo** | 168,3 m² | 54,4 s |
-| `greedy` | 138,6 m² | 269,1 m² (11,5×23,4) | 175,6 m² | 0,9 s |
-| `cut` | 138,6 m² | 269,1 m² | 175,6 m² | 0,9 s |
-| `loose` | 138,6 m² | 269,1 m² | 175,6 m² | 0,8 s |
+| `loose` | 138,6 m² | 269,1 m² (11,5×23,4) | 175,6 m² | 0,8 s |
 
 A semente ranqueada (em vez da primeira planta válida) melhorou os exatos: `cp-sat` fechou o "maior" como ótimo e desceu o "menor" de 106,1 para 104,7 m². Os heurísticos pagam a caminhada de alternativas: 0,8–0,9 s por geração, contra 44–92 ms antes. Cada geração devolve 8–12 alternativas no `casa_prado`, uma por grafo de contatos, já sem as topologias das três opções.
 
@@ -71,5 +69,4 @@ PLANTA_SOLVE_SECONDS=5 npm run bench      # orçamento curto
 
 1. `cp-sat` ainda não fecha "menor" e "corredor" no orçamento padrão (104,7 e 163,8 m², ambos `feasible`); com 30 s o "maior" vira ótimo e os outros dois seguem `feasible`. Apertar os domínios do modelo: no apertado `W·H = Σárea ≤ Σmax`, então `H ≤ √Σmax` e `W ≤ √(3·Σmax)`, contra `Σmax` para todos hoje; limitar largura e altura de cada cômodo por `maxArea/minSide`; ordenar cômodos com limites idênticos (ex.: `sala_jantar` e `sala_tv`).
 2. Aproximar o heurístico do exato no "menor": 138,6 m² contra 104,7 m². A caminhada já ranqueia por custo; ideias: escolher a forma do primeiro cômodo pela caixa final, ou colocar o corredor como faixa e pendurar os vizinhos nos dois lados.
-3. Avaliar se o `greedy`/`cut` devem continuar existindo: com o fallback, os três heurísticos devolvem a mesma planta no `casa_prado`.
-4. As alternativas custam 0,8–0,9 s nos heurísticos (a caminhada de 150 ms por objetivo). Se o atraso incomodar, mover a coleta para o botão, com uma segunda chamada e a geração inicial de volta aos ~44 ms.
+3. As alternativas custam 0,8–0,9 s nos heurísticos (a caminhada de 150 ms por objetivo). Se o atraso incomodar, mover a coleta para o botão, com uma segunda chamada e a geração inicial de volta aos ~44 ms.

@@ -1,6 +1,6 @@
 import { CpModel, CpSat, LinearExpr } from "cp-sat-wasm";
 import { FACADES, GRID, MAX_ASPECT, MIN_DOOR, OBJECTIVES, bounds, cells, contactGraph, touchesExterior, validateLayout, validateLoose } from "./layout.mjs";
-import { greedyEngine, cutEngine, looseEngine, collectLoose } from "./engines.mjs";
+import { looseEngine, collectLoose } from "./engines.mjs";
 
 // Time limit per objective: bigger houses need more search; tests shorten it.
 const SOLVE_MAX_SECONDS = 30;
@@ -216,8 +216,6 @@ const looseRectEngine = {
 export const engines = {
   "cp-sat": cpSatEngine,
   "loose-rect": looseRectEngine,
-  greedy: greedyEngine,
-  cut: cutEngine,
   loose: looseEngine,
 };
 
