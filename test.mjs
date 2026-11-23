@@ -102,6 +102,37 @@ const looseSolve = await solve({ rooms: gapRooms, engine: "loose-rect" });
 assert.equal(looseSolve.ok, true);
 assert(looseSolve.options.some(option => option.layout), "loose-rect should produce a layout");
 
+// Named facades pin the room's side to the matching wall of the house.
+const facadeRooms = [
+  { name: "sala", minArea: 8, maxArea: 24, minSide: 3, links: ["quarto"], facades: ["north", "west"] },
+  { name: "quarto", minArea: 8, maxArea: 24, minSide: 3, links: ["sala"], facades: ["south"] },
+];
+const facing = [
+  { room: "sala", color: "gray", x: 0, y: 0, w: 40, h: 30 },
+  { room: "quarto", color: "gray", x: 40, y: 0, w: 30, h: 40 },
+];
+assert.equal(validateLoose(facing, facadeRooms), "");
+assert.equal(
+  validateLoose(facing.map(room => room.room === "sala" ? { ...room, y: 10 } : room), facadeRooms),
+  "sala não tem abertura para norte.",
+);
+assert.equal(
+  validateLoose([
+    { room: "sala", color: "gray", x: 30, y: 0, w: 40, h: 30 },
+    { room: "quarto", color: "gray", x: 0, y: 0, w: 30, h: 40 },
+  ], facadeRooms),
+  "sala não tem abertura para oeste.",
+);
+for (const engine of engineList) {
+  const faced = await solve({ rooms: facadeRooms, engine: engine.id });
+  assert.equal(faced.ok, true, `${engine.id} should accept facades`);
+  const solved = faced.options.filter(option => option.layout);
+  assert(solved.length >= 1, `${engine.id} should place rooms with facades`);
+  for (const option of solved) {
+    assert.equal(engine.validate(option.layout, facadeRooms), "", `${engine.id}/${option.id} should honour facades`);
+  }
+}
+
 // Complex regression case: casa_prado.json (corridor hub, garden void, 12 rooms).
 // The exact engines are best-effort inside the test budget, so only the engines with a
 // guaranteed fallback must always answer; anything they return must validate.

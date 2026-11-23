@@ -1,5 +1,5 @@
 import { CpModel, CpSat, LinearExpr } from "cp-sat-wasm";
-import { GRID, MAX_ASPECT, MIN_DOOR, OBJECTIVES, cells, touchesExterior, validateLayout, validateLoose } from "./layout.mjs";
+import { FACADES, GRID, MAX_ASPECT, MIN_DOOR, OBJECTIVES, cells, touchesExterior, validateLayout, validateLoose } from "./layout.mjs";
 import { greedyEngine, cutEngine, looseEngine } from "./engines.mjs";
 
 // Time limit per objective: bigger houses need more search; tests shorten it.
@@ -21,11 +21,12 @@ function layoutBox(layout) {
 }
 
 // Seed the model with a known layout; coordinates are rotated and shifted into the origin.
-function applyHint(model, variables, exteriorWidth, exteriorHeight, limit, hint) {
+// Rotation is skipped when rooms need named facades, since the compass then matters.
+function applyHint(model, variables, exteriorWidth, exteriorHeight, limit, hint, oriented = false) {
   if (!hint?.layout?.length) return;
   const raw = layoutBox(hint.layout);
   const tall = raw.maxY - raw.minY > raw.maxX - raw.minX;
-  const layout = tall
+  const layout = tall && !oriented
     ? hint.layout.map(room => ({ ...room, x: room.y, y: room.x, w: room.h, h: room.w }))
     : hint.layout;
   const box = layoutBox(layout);
@@ -81,10 +82,17 @@ function buildModel(rooms, objective, loose = false) {
   const exteriorHeight = model.newIntVar(1, maximumSide, "exterior_height");
   const footprint = model.newIntVar(1, maximumArea, "footprint");
   model.addMultiplicationEquality(footprint, [exteriorWidth, exteriorHeight]);
-  // A rotated layout is equivalent, so keeping the wider side fixed removes half the symmetry.
-  model.add(exteriorWidth.ge(exteriorHeight));
-  // Cap the aspect ratio: without it "biggest area" degenerates into a long corridor house.
-  model.add(exteriorWidth.le(exteriorHeight.times(MAX_ASPECT)));
+  // A rotated layout is equivalent unless a room needs a named facade; then the compass matters.
+  const oriented = rooms.some(room => room.facades?.length);
+  if (oriented) {
+    model.add(exteriorWidth.le(exteriorHeight.times(MAX_ASPECT)));
+    model.add(exteriorHeight.le(exteriorWidth.times(MAX_ASPECT)));
+  } else {
+    // Keeping the wider side fixed removes half the symmetry.
+    model.add(exteriorWidth.ge(exteriorHeight));
+    // Cap the aspect ratio: without it "biggest area" degenerates into a long corridor house.
+    model.add(exteriorWidth.le(exteriorHeight.times(MAX_ASPECT)));
+  }
 
   const variables = rooms.map(room => {
     const min = Math.ceil(room.minSide * GRID);
@@ -125,6 +133,16 @@ function buildModel(rooms, objective, loose = false) {
     model.addBoolOr([...sides, ...voidSides]);
   }
 
+  // A named facade pins that side of the room to the matching wall of the house.
+  for (const room of variables) {
+    for (const facade of room.facades ?? []) {
+      if (facade === "north") model.add(room.y.eq(0));
+      else if (facade === "south") model.add(room.endY.eq(exteriorHeight));
+      else if (facade === "west") model.add(room.x.eq(0));
+      else model.add(room.endX.eq(exteriorWidth));
+    }
+  }
+
   for (const room of variables) {
     for (const peer of room.links) {
       if (room.name > peer) continue;
@@ -145,7 +163,7 @@ function buildModel(rooms, objective, loose = false) {
 // Exact engine: CP-SAT proves the best layout or reports the best one found.
 async function cpSatSolve(rooms, objective, { loose = false, hint = null, seconds = solveSeconds(rooms) } = {}) {
   const { model, variables, exteriorWidth, exteriorHeight, limit } = buildModel(rooms, objective, loose);
-  applyHint(model, variables, exteriorWidth, exteriorHeight, limit, hint);
+  applyHint(model, variables, exteriorWidth, exteriorHeight, limit, hint, rooms.some(room => room.facades?.length));
   const result = await CpSat.solve(model, { executor: "worker", maxTimeInSeconds: seconds });
   if (!result.hasSolution) return { status: result.statusName().toLowerCase(), layout: null };
   return {
@@ -284,6 +302,11 @@ export function validate(rooms) {
     if (room.void !== undefined && typeof room.void !== "boolean") return `void precisa ser booleano em ${room.name}.`;
     if (room.corridor !== undefined && typeof room.corridor !== "boolean") return `corridor precisa ser booleano em ${room.name}.`;
     if (room.color !== undefined && !["green", "blue", "yellow", "orange", "purple", "pink", "gray"].includes(room.color)) return `Cor inválida em ${room.name}.`;
+    if (room.facades !== undefined) {
+      if (!Array.isArray(room.facades)) return `facades precisa ser uma lista em ${room.name}.`;
+      if (room.facades.some(facade => !Object.hasOwn(FACADES, facade))) return `Fachada inválida em ${room.name}.`;
+      if (new Set(room.facades).size !== room.facades.length) return `Fachada repetida em ${room.name}.`;
+    }
     if (!Number.isFinite(room.minSide) || room.minSide <= 0) return `Confira a dimensão mínima de ${room.name}.`;
     if (!Number.isFinite(room.minArea) || !Number.isFinite(room.maxArea) || room.minArea <= 0 || room.maxArea < room.minArea) return `Confira as áreas de ${room.name}.`;
     if (room.links.some(name => !names.has(name) || name === room.name)) return `Conexão inválida em ${room.name}.`;
@@ -306,6 +329,7 @@ export async function solve(input) {
     minSide: room.minSide ?? input.minSide,
     void: Boolean(room.void),
     exterior: room.exterior ?? !(room.void || room.corridor),
+    facades: room.facades ?? [],
   }));
   const error = validate(rooms);
   if (error) return { ok: false, error };

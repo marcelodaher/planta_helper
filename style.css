@@ -77,6 +77,12 @@ dialog::backdrop { background: #17231db3; }
 .room-dimensions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .inline-check { display: flex; align-items: center; gap: 8px; }
 .flag-row { display: flex; flex-wrap: wrap; gap: 20px; }
+/* Facade checkboxes laid out as a compass: north up, south down, east and west on the sides. */
+.facade-compass { display: grid; grid-template-areas: ". north ." "west middle east" ". south ."; justify-items: center; align-items: center; gap: 8px 14px; }
+.facade-north { grid-area: north; }
+.facade-east { grid-area: east; }
+.facade-south { grid-area: south; }
+.facade-west { grid-area: west; }
 .inline-check input { width: 18px; height: 18px; padding: 0; }
 fieldset { min-width: 0; padding: 12px; border: 1px solid #e0e5dd; border-radius: 10px; }
 legend { padding: 0 5px; font-weight: 650; }
@@ -102,6 +108,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, .file-button:fo
 .option h2 { margin-bottom: 4px; }
 .meta { margin: 0 0 16px; font-size: .9rem; }
 .plan { position: relative; margin: 12px auto; border: 2px solid #34483d; background-color: #fff; background-image: linear-gradient(#edf1ed 1px, transparent 1px), linear-gradient(90deg, #edf1ed 1px, transparent 1px); background-size: 20px 20px; overflow: hidden; }
+.compass { position: absolute; top: 6px; left: 6px; z-index: 2; padding: 1px 6px; border-radius: 5px; background: #ffffffe0; color: #4b5c53; font-size: .7rem; font-weight: 650; letter-spacing: .04em; pointer-events: none; }
 .room { position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4px; border: 1px solid #537462; background: #dcebe0e8; text-align: center; overflow: hidden; font-size: .8rem; }
 .room.color-green { background: #dcebe0e8; border-color: #537462; }
 .room.color-blue { background: #dbeaf5e8; border-color: #4e7190; }

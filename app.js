@@ -1,4 +1,5 @@
 import { solve, validate, engineList } from "./generator.mjs";
+import { FACADES } from "./layout.mjs";
 import { samples } from "./samples.mjs";
 
 const roomList = document.querySelector("#rooms");
@@ -46,7 +47,8 @@ function escapeHTML(value) {
 // Show the current rooms as a draggable list with no inline editing controls.
 function renderRoomList() {
   roomList.innerHTML = roomData.map((room, index) => {
-    const tags = [room.corridor && "corredor", room.void && "vazado", room.exterior && "área externa"].filter(Boolean);
+    const facades = (room.facades ?? []).map(facade => FACADES[facade]).join(", ");
+    const tags = [room.corridor && "corredor", room.void && "vazado", facades ? `fachadas: ${facades}` : room.exterior && "área externa"].filter(Boolean);
     const details = `${room.minArea}–${room.maxArea} m² · lado mínimo ${room.minSide} m${tags.length ? ` · ${tags.join(" · ")}` : ""}`;
     return `<li class="color-${escapeHTML(room.color ?? "gray")}" draggable="true" tabindex="0" data-index="${index}" aria-label="Editar ${escapeHTML(room.name)}; arraste para reordenar">
       <span class="drag-handle" aria-hidden="true">⠿</span>
@@ -170,6 +172,14 @@ function showColorSample() {
   document.querySelector("#color-swatch").dataset.color = roomForm.elements.color.value;
 }
 
+// A named facade already implies exterior contact, so the general checkbox follows it.
+function syncExterior() {
+  const chosen = Boolean(roomForm.querySelector('input[name="facades"]:checked'));
+  const box = roomForm.elements.exterior;
+  box.checked = chosen || box.checked;
+  box.disabled = chosen;
+}
+
 // Open the separate editor for adding or editing one room.
 function openRoomEditor(index, corridor = false) {
   editingIndex = index;
@@ -194,6 +204,10 @@ function openRoomEditor(index, corridor = false) {
   roomForm.elements.color.value = room.color ?? "gray";
   showColorSample();
   roomForm.elements.exterior.checked = Boolean(room.exterior);
+  for (const input of roomForm.querySelectorAll('input[name="facades"]')) {
+    input.checked = (room.facades ?? []).includes(input.value);
+  }
+  syncExterior();
   document.querySelector("#room-dialog-title").textContent =
     `${index === null ? "Adicionar" : "Editar"} cômodo`;
   renderConnections(room);
@@ -213,10 +227,12 @@ function saveEditedRoom(event) {
   }
   const oldName = editingIndex === null ? null : roomData[editingIndex].name;
   const links = [...roomForm.querySelectorAll('input[name="links"]:checked')].map(input => input.value);
+  const facades = [...roomForm.querySelectorAll('input[name="facades"]:checked')].map(input => input.value);
   const room = {
     name,
     links,
-    exterior: roomForm.elements.exterior.checked,
+    facades,
+    exterior: roomForm.elements.exterior.checked || facades.length > 0,
     void: roomForm.elements.void.checked,
     corridor: roomForm.elements.corridor.checked,
     color: roomForm.elements.color.value,
@@ -249,6 +265,7 @@ function loadInput(input) {
     minSide: room.minSide ?? input.minSide ?? 1.2,
     void: Boolean(room.void),
     exterior: room.exterior ?? !(room.void || room.corridor),
+    facades: room.facades ?? [],
     links: room.links ?? [],
   }));
   renderRoomList();
@@ -281,20 +298,14 @@ function engineLabel(id) {
 
 function render(option) {
   if (!option.layout) return `<article class="option"><h2>${option.label}</h2><p>Não foi encontrada uma opção nesta busca (${escapeHTML(STATUS_LABELS[option.status] ?? option.status)}).</p></article>`;
-  const rawBounds = option.bounds ?? {
+  // North is always up, so the plan is never rotated and facade names stay meaningful.
+  const bounds = option.bounds ?? {
     minX: Math.min(...option.layout.map(room => room.x)),
     minY: Math.min(...option.layout.map(room => room.y)),
     maxX: Math.max(...option.layout.map(room => room.x + room.w)),
     maxY: Math.max(...option.layout.map(room => room.y + room.h)),
   };
-  const rotate = rawBounds.maxY - rawBounds.minY > rawBounds.maxX - rawBounds.minX;
-  const layout = rotate
-    ? option.layout.map(room => ({ ...room, x: room.y, y: room.x, w: room.h, h: room.w }))
-    : option.layout;
-  // A loose engine may keep open space inside the exterior rectangle.
-  const bounds = rotate
-    ? { minX: rawBounds.minY, minY: rawBounds.minX, maxX: rawBounds.maxY, maxY: rawBounds.maxX }
-    : rawBounds;
+  const layout = option.layout;
   const minX = bounds.minX;
   const minY = bounds.minY;
   const maxX = bounds.maxX;
@@ -314,6 +325,7 @@ function render(option) {
     <h2>${option.label}</h2>
     <p class="meta">${size} · Motor: ${escapeHTML(engineLabel(option.engine))} · ${escapeHTML(STATUS_LABELS[option.status] ?? option.status)}</p>
     <div class="plan" role="img" aria-label="Planta: ${escapeHTML(layout.map(room => room.room).join(", "))}" style="width:${width}px;height:${height}px">
+      <span class="compass" aria-hidden="true">N ↑</span>
       ${layout.map(room => `<div class="room color-${escapeHTML(room.color ?? "gray")}${room.void ? " void" : ""}"
         style="left:${(room.x-minX)*scale}px;top:${(room.y-minY)*scale}px;width:${room.w*scale}px;height:${room.h*scale}px">
         <strong>${escapeHTML(room.room)}</strong><span>${(room.w/10).toFixed(1)} × ${(room.h/10).toFixed(1)} m · ${(room.w*room.h/100).toFixed(1)} m²${room.touchesExterior ? " · externa" : ""}</span></div>`).join("")}
@@ -386,6 +398,7 @@ undoRemove.addEventListener("click", () => {
   message.textContent = "Remoção desfeita.";
 });
 roomForm.elements.color.addEventListener("change", showColorSample);
+for (const input of roomForm.querySelectorAll('input[name="facades"]')) input.addEventListener("change", syncExterior);
 roomForm.addEventListener("submit", saveEditedRoom);
 document.querySelector("#cancel-room").addEventListener("click", () => roomDialog.close());
 connectionGraph.addEventListener("click", openGraph);

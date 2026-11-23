@@ -2,6 +2,9 @@ export const GRID = 10; // Every dimension and position uses 10 cm cells.
 export const MIN_DOOR = 10; // Two connected rooms need at least 1 m of shared wall.
 export const MAX_ASPECT = 3; // A house longer than 3:1 is not a believable plan.
 
+// Facades a room can open onto, in compass order with Portuguese labels.
+export const FACADES = { north: "norte", east: "leste", south: "sul", west: "oeste" };
+
 export const OBJECTIVES = [
   { id: "min_area", label: "Menor área", key: "min" },
   { id: "max_area", label: "Maior área", key: "max" },
@@ -100,8 +103,18 @@ function checkRooms(layout, rooms) {
   }
   const placed = new Map(layout.map(room => [room.room, { ...room, void: Boolean(byName.get(room.room)?.void) }]));
   const merged = [...placed.values()];
+  const box = bounds(layout);
+  // North is the lowest y, south the highest; west the lowest x, east the highest.
+  const onEdge = (room, facade) =>
+    (facade === "north" && room.y === box.minY) ||
+    (facade === "south" && room.y + room.h === box.maxY) ||
+    (facade === "west" && room.x === box.minX) ||
+    (facade === "east" && room.x + room.w === box.maxX);
   for (const room of rooms) {
     if (room.exterior && !touchesExterior(placed.get(room.name), merged)) return `${room.name} não toca o perímetro externo.`;
+    for (const facade of room.facades ?? []) {
+      if (!onEdge(placed.get(room.name), facade)) return `${room.name} não tem abertura para ${FACADES[facade]}.`;
+    }
     for (const peer of room.links) {
       if (room.name > peer) continue;
       if (sharedWall(placed.get(room.name), placed.get(peer)) < MIN_DOOR) return `${room.name} e ${peer} não têm parede suficiente.`;

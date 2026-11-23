@@ -312,6 +312,32 @@ function aspect(layout) {
   return Math.max(width, height) / Math.max(1, Math.min(width, height));
 }
 
+// Try to land every room with named facades on the matching edge of the house.
+// Moves are best-effort; the shared validator rejects the candidates that fail.
+function fitFacades(layout, rooms) {
+  const info = new Map(rooms.map(room => [room.name, room]));
+  if (!rooms.some(room => room.facades?.length)) return layout;
+  const work = layout.map(room => ({ ...room }));
+  const linksBreak = room => (info.get(room.room)?.links ?? []).some(peer => {
+    const other = work.find(candidate => candidate.room === peer);
+    return !other || sharedWall(room, other) < MIN_DOOR;
+  });
+  for (const room of work) {
+    for (const facade of info.get(room.room)?.facades ?? []) {
+      const box = bounds(work);
+      const x = facade === "west" ? box.minX : facade === "east" ? box.maxX - room.w : room.x;
+      const y = facade === "north" ? box.minY : facade === "south" ? box.maxY - room.h : room.y;
+      if (x === room.x && y === room.y) continue;
+      const moved = { ...room, x, y };
+      if (overlaps(moved, work.filter(other => other !== room))) continue;
+      if (linksBreak(moved)) continue;
+      room.x = x;
+      room.y = y;
+    }
+  }
+  return work;
+}
+
 // Loose engine: accepts L-shaped or irregular footprints, not only a tight rectangle.
 // It iterates over orderings, first-room shapes and scales, returning the first believable layout.
 function looseSolve(rooms, objective) {
@@ -325,8 +351,10 @@ function looseSolve(rooms, objective) {
     for (const scale of scales) {
       const scaled = new Map([...targets].map(([name, goal]) => [name, Math.round(goal * scale)]));
       for (const shape of shapes) {
-        const layout = placeLoose(order, scaled, shape);
-        if (!layout || validateLoose(layout, rooms) !== "") continue;
+        const placed = placeLoose(order, scaled, shape);
+        if (!placed) continue;
+        const layout = fitFacades(placed, rooms);
+        if (validateLoose(layout, rooms) !== "") continue;
         if (aspect(layout) <= MAX_ASPECT) return { status: "loose", layout };
         fallback ??= layout;
       }
