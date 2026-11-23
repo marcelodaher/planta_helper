@@ -1,0 +1,141 @@
+{
+  "format": "planta-helper",
+  "version": 3,
+  "engine": "loose-rect",
+  "input": {
+    "rooms": [
+      {
+        "name": "sala_jantar",
+        "links": ["sala_tv", "cozinha"],
+        "exterior": true,
+        "corridor": false,
+        "color": "purple",
+        "minArea": 12,
+        "maxArea": 20,
+        "minSide": 3,
+        "void": false
+      },
+      {
+        "name": "sala_tv",
+        "links": ["sala_jantar", "jardim"],
+        "exterior": true,
+        "corridor": false,
+        "color": "purple",
+        "minArea": 12,
+        "maxArea": 20,
+        "minSide": 3,
+        "void": false
+      },
+      {
+        "name": "cozinha",
+        "links": ["sala_jantar", "dispensa"],
+        "exterior": true,
+        "corridor": false,
+        "color": "orange",
+        "minArea": 12,
+        "maxArea": 16,
+        "minSide": 2.5,
+        "void": false
+      },
+      {
+        "name": "dispensa",
+        "links": ["cozinha"],
+        "exterior": true,
+        "corridor": false,
+        "color": "orange",
+        "minArea": 8,
+        "maxArea": 12,
+        "minSide": 1.8,
+        "void": false
+      },
+      {
+        "name": "servico",
+        "links": ["corredor"],
+        "exterior": true,
+        "corridor": false,
+        "color": "yellow",
+        "minArea": 8,
+        "maxArea": 12,
+        "minSide": 2,
+        "void": false
+      },
+      {
+        "name": "corredor",
+        "links": ["servico", "quarto_visitas", "escritorio", "lavabo", "quarto"],
+        "exterior": false,
+        "corridor": true,
+        "color": "gray",
+        "minArea": 2,
+        "maxArea": 12,
+        "minSide": 1,
+        "void": false
+      },
+      {
+        "name": "escritorio",
+        "links": ["corredor"],
+        "exterior": true,
+        "corridor": false,
+        "color": "pink",
+        "minArea": 9,
+        "maxArea": 12,
+        "minSide": 2.5,
+        "void": false
+      },
+      {
+        "name": "quarto_visitas",
+        "links": ["corredor"],
+        "exterior": true,
+        "corridor": false,
+        "color": "pink",
+        "minArea": 8,
+        "maxArea": 12,
+        "minSide": 1.2,
+        "void": false
+      },
+      {
+        "name": "lavabo",
+        "links": ["corredor"],
+        "exterior": true,
+        "corridor": false,
+        "color": "blue",
+        "minArea": 3,
+        "maxArea": 8,
+        "minSide": 1.5,
+        "void": false
+      },
+      {
+        "name": "quarto",
+        "links": ["corredor", "wc", "jardim"],
+        "exterior": true,
+        "corridor": false,
+        "color": "pink",
+        "minArea": 15,
+        "maxArea": 20,
+        "minSide": 3,
+        "void": false
+      },
+      {
+        "name": "wc",
+        "links": ["quarto"],
+        "exterior": true,
+        "corridor": false,
+        "color": "blue",
+        "minArea": 4,
+        "maxArea": 8,
+        "minSide": 1.6,
+        "void": false
+      },
+      {
+        "name": "jardim",
+        "links": ["sala_tv", "quarto"],
+        "exterior": true,
+        "void": true,
+        "corridor": false,
+        "color": "green",
+        "minArea": 8,
+        "maxArea": 30,
+        "minSide": 3
+      }
+    ]
+  }
+}

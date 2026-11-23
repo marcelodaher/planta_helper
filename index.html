@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Explore opções de plantas residenciais retangulares.">
+    <title>Planta Helper</title>
+    <link rel="stylesheet" href="style.css">
+    <script type="importmap">{"imports":{"cp-sat-wasm":"/node_modules/cp-sat-wasm/build/javascript/browser/cp-sat.js"}}</script>
+    <script type="module" src="app.js"></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">PLANTA HELPER · PROTÓTIPO</p>
+        <h1>Vamos organizar sua casa.</h1>
+        <p>Defina os cômodos e as conexões. As opções são montadas em uma grade de 10 cm.</p>
+      </header>
+
+      <div class="layout">
+        <aside class="sidebar">
+          <section class="panel">
+            <h2>Salvar / abrir</h2>
+            <p>Salve as entradas em um arquivo ou continue um projeto anterior.</p>
+            <div class="file-actions">
+              <button id="save-file" type="button" class="secondary">Salvar arquivo</button>
+              <div class="split">
+                <label class="file-button secondary">Abrir arquivo
+                  <input id="open-file" type="file" accept="application/json,.json">
+                </label>
+                <select id="samples" aria-label="Carregar um exemplo">
+                  <option value=""></option>
+                </select>
+              </div>
+            </div>
+            <hr>
+            <div class="engine-picker">
+              <label>Motor de cálculo
+                <select id="engine"></select>
+              </label>
+              <p id="engine-description"></p>
+            </div>
+            <hr>
+            <h3>Conexões</h3>
+            <div id="connection-graph" class="graph-preview" role="button" tabindex="0" aria-label="Ampliar grafo de conexões"></div>
+          </section>
+        </aside>
+
+        <div class="workspace">
+          <form id="planner">
+            <section class="panel">
+              <div class="section-heading">
+                <div><h2>Cômodos</h2><p>Selecione um cômodo para editar; arraste para mudar a ordem. Conexões são sempre bidirecionais.</p></div>
+                <div class="file-actions">
+                  <button id="add-room" type="button" class="secondary">Adicionar cômodo</button>
+                  <button id="add-corridor" type="button" class="secondary">Adicionar corredor</button>
+                </div>
+              </div>
+              <ol id="rooms" class="room-list" aria-label="Lista ordenada de cômodos"></ol>
+              <div id="remove-room" class="remove-dropzone" aria-label="Arraste um cômodo aqui para removê-lo">
+                <span>× Remover cômodo</span>
+                <button id="undo-remove" type="button" class="secondary" hidden>Desfazer remoção</button>
+              </div>
+            </section>
+            <button class="primary" type="submit">Gerar opções</button>
+          </form>
+          <p id="message" role="status" aria-live="polite"></p>
+          <section id="results" aria-label="Opções de planta"></section>
+        </div>
+      </div>
+
+      <dialog id="room-dialog">
+        <form id="room-form" method="dialog">
+          <h2 id="room-dialog-title">Adicionar cômodo</h2>
+          <label>Nome
+            <input name="name" type="text" required>
+          </label>
+          <div class="flag-row">
+            <label class="inline-check"><input name="corridor" type="checkbox"> É corredor</label>
+            <label class="inline-check"><input name="void" type="checkbox"> É área externa (vazado)</label>
+          </div>
+          <label class="inline-check"><input name="exterior" type="checkbox"> Exige contato com a área externa</label>
+          <label>Cor
+            <span class="color-picker"><select name="color">
+              <option value="green">Verde</option>
+              <option value="blue">Azul</option>
+              <option value="yellow">Amarelo</option>
+              <option value="orange">Laranja</option>
+              <option value="purple">Roxo</option>
+              <option value="pink">Rosa</option>
+              <option value="gray">Cinza</option>
+            </select><span id="color-swatch" class="color-swatch" aria-hidden="true"></span></span>
+          </label>
+          <div id="room-dimensions" class="room-dimensions">
+            <label>Área mínima (m²)<input name="minArea" type="number" min="0.1" step="0.1" value="8" required></label>
+            <label>Área máxima (m²)<input name="maxArea" type="number" min="0.1" step="0.1" value="12" required></label>
+            <label>Lado mínimo (m)<input name="minSide" type="number" min="0.1" step="0.1" value="1.2" required></label>
+          </div>
+          <fieldset>
+            <legend>Conecta com</legend>
+            <div id="connections" class="connection-list"></div>
+          </fieldset>
+          <div class="dialog-actions">
+            <button id="cancel-room" type="button" class="secondary">Cancelar</button>
+            <button type="submit" class="primary">Salvar cômodo</button>
+          </div>
+        </form>
+      </dialog>
+      <dialog id="graph-dialog">
+        <div class="dialog-heading">
+          <h2>Conexões</h2>
+          <button id="graph-close" type="button" class="secondary">Fechar</button>
+        </div>
+        <div id="graph-large"></div>
+      </dialog>
+      <footer>Protótipo heurístico: as opções são exemplos de arranjos, não projetos construtivos.</footer>
+    </main>
+    <div id="busy-overlay" class="busy-overlay" role="status" aria-live="polite" hidden>
+      <div class="busy-spinner" aria-hidden="true"></div>
+      <p id="busy-text"></p>
+    </div>
+  </body>
+</html>

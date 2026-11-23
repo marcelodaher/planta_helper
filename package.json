@@ -1,0 +1,16 @@
+{
+  "name": "planta_helper",
+  "version": "1.0.0",
+  "description": "Protótipo estático; o motor geométrico (`generator.mjs`) é independente da interface web. Na página, os três exemplos podem ser carregados e editados. “Salvar arquivo” baixa as entradas como JSON e “Abrir arquivo” as restaura para edição e recálculo.",
+  "type": "module",
+  "scripts": {
+    "test": "node test.mjs",
+    "bench": "node bench.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cp-sat-wasm": "^2.2.0"
+  }
+}
