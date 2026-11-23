@@ -37,6 +37,10 @@ Todos os motores devolvem o mesmo formato. Os motores retangulares exigem cobert
 
 Instale as dependências com `npm install` e teste o motor com `npm test`. A suíte usa `casa_prado.json` — uma casa com corredor, jardim vazado e 12 cômodos — como caso complexo de validação dos motores. `npm run bench` roda todos os motores nesse caso e imprime tempo, status, área, caixa e validação por objetivo; use-o para comparar mudanças nos solvers. Qualquer arquivo de entrada ou envelope serve: `npm run bench -- outra_casa.json`.
 
+## Publicação
+
+O site é publicado no GitHub Pages pelo workflow `.github/workflows/pages.yml`: a cada push na `main` ele instala as dependências, copia a página e os arquivos do `cp-sat-wasm` (`browser` e `wasm`) para um artefato e publica em <https://marcelodaher.github.io/planta_helper/>. O import map do `index.html` é relativo, então a página funciona tanto na raiz quanto em um subdiretório. Para rodar localmente, sirva a raiz do projeto por HTTP (`npx serve` ou `python3 -m http.server`); `file://` não carrega os módulos.
+
 ## Decisões
 
 - A planta é uma grade de 10 cm e todos os cômodos são retângulos alinhados a essa grade.
