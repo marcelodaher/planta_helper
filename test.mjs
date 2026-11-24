@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { solve, engineList } from "./generator.mjs";
-import { validateLayout, validateLoose, contactGraph } from "./layout.mjs";
+import { solve, engineList, solveObjective, assemble, walkPreviews } from "./generator.mjs";
+import { validateLayout, validateLoose, contactGraph, OBJECTIVES } from "./layout.mjs";
 import { samples } from "./samples.mjs";
 
 // Keep the suite fast; quality measurements live in `npm run bench`.
@@ -18,16 +18,19 @@ assert.equal(contactGraph(graphOne), "a|b");
 assert.equal(contactGraph(graphOne.map(room => ({ ...room, x: room.x + 50, y: room.y + 30 }))), "a|b");
 assert.equal(contactGraph([...graphOne, { room: "c", x: 0, y: 10, w: 10, h: 10 }]), "a|b;a|c");
 
+// A plant is validated by the engine that produced it: a time-limited exact run that found
+// nothing falls back to the walk, and the option then carries the loose engine.
+const validator = option => (engineList.find(engine => engine.id === option.engine) ?? engineList[0]).validate;
+
 // Every engine must return complete, valid tilings on every sample.
 for (const engine of engineList) {
   for (const sample of samples) {
     const result = await solve({ ...sample.input, engine: engine.id });
     assert.equal(result.ok, true, `${engine.id}/${sample.id} should be valid`);
     assert.deepEqual(result.options.map(option => option.id), ["min_area", "max_area", "min_corridor"]);
-    assert(result.options.some(option => option.layout), `${engine.id}/${sample.id} should produce a tiling`);
+    assert(result.options.every(option => option.layout), `${engine.id}/${sample.id} should answer every objective`);
     for (const option of result.options) {
-      if (!option.layout) continue;
-      assert.equal(engine.validate(option.layout, sample.input.rooms), "", `${engine.id}/${sample.id}/${option.id}`);
+      assert.equal(validator(option)(option.layout, sample.input.rooms), "", `${engine.id}/${sample.id}/${option.id}`);
       assert(option.layout.every(room => room.touchesExterior !== undefined), "rooms should carry the exterior flag");
     }
   }
@@ -40,6 +43,36 @@ assert.equal(result.ok, true);
 assert.deepEqual(result.options.map(option => option.id), ["min_area", "max_area", "min_corridor"]);
 assert(result.options.every(option => option.status === "optimal" && option.layout));
 assert(area(result.options[0].layout) <= area(result.options[1].layout));
+
+// The page runs the three objectives in separate workers: the per-objective entry points
+// must merge into the same shape as the sequential solve.
+const parallel = await Promise.all(OBJECTIVES.map(objective => solveObjective(suite.rooms, objective.id, "loose")));
+const merged = assemble(parallel, suite.rooms);
+assert.deepEqual(merged.options.map(option => option.id), ["min_area", "max_area", "min_corridor"]);
+assert(merged.options.some(option => option.layout));
+assert(merged.options.every(option => !option.layout || validateLoose(option.layout, suite.rooms) === ""));
+
+// A warm start comes from localStorage and may describe rooms the user has since changed:
+// it may only hint the solver, so the answer still has to validate against the current rooms.
+const warmRooms = [
+  { name: "sala", minArea: 9, maxArea: 16, minSide: 2, exterior: true, links: ["quarto"] },
+  { name: "quarto", minArea: 6, maxArea: 12, minSide: 2, exterior: true, links: ["sala"] },
+];
+const staleWarm = [
+  { room: "sala", x: -400, y: 30, w: 900, h: 1 },
+  { room: "quarto", x: 9999, y: -7, w: 2.5, h: 2 },
+  { room: "comodo_que_nao_existe", x: 0, y: 0, w: 10, h: 10 },
+];
+for (const engine of engineList) {
+  const warmed = await solveObjective(warmRooms, "min_area", engine.id, staleWarm);
+  assert(warmed.option.layout, `${engine.id} should answer despite a stale warm start`);
+  assert.equal(validator(warmed.option)(warmed.option.layout, warmRooms), "", `${engine.id} should not echo the stale warm start`);
+}
+
+// The top-level API carries warm starts too: the CLI can replay what the page persists.
+const replay = await solve({ rooms: warmRooms, engine: "cp-sat", warm: { min_area: staleWarm } });
+assert.equal(replay.ok, true, "solve should accept a warm start");
+assert(replay.options.every(option => option.layout && validator(option)(option.layout, warmRooms) === ""));
 
 // A corridor stays small even when the house grows.
 const corridor = await solve({
@@ -107,7 +140,7 @@ const gapLayout = [
 ];
 assert.equal(validateLoose(gapLayout, gapRooms), "");
 assert.notEqual(validateLayout(gapLayout, gapRooms), "");
-const looseSolve = await solve({ rooms: gapRooms, engine: "loose-rect" });
+const looseSolve = await solve({ rooms: gapRooms, engine: "loose" });
 assert.equal(looseSolve.ok, true);
 assert(looseSolve.options.some(option => option.layout), "loose-rect should produce a layout");
 
@@ -138,45 +171,81 @@ for (const engine of engineList) {
   const solved = faced.options.filter(option => option.layout);
   assert(solved.length >= 1, `${engine.id} should place rooms with facades`);
   for (const option of solved) {
-    assert.equal(engine.validate(option.layout, facadeRooms), "", `${engine.id}/${option.id} should honour facades`);
+    assert.equal(validator(option)(option.layout, facadeRooms), "", `${engine.id}/${option.id} should honour facades`);
   }
 }
 
-// Complex regression case: casa_prado.json (corridor hub, garden void, 12 rooms).
-// The exact engines are best-effort inside the test budget, so only the engines with a
-// guaranteed fallback must always answer; anything they return must validate.
-const prado = JSON.parse(readFileSync(new URL("./casa_prado.json", import.meta.url), "utf8"));
+// Regression (fuzzed): on dense graphs the walk can miss a layout that exists; the loose
+// engine must escalate to the exact loose model instead of handing back a blank card.
+const walkMissedRooms = [
+  { name: "r0", links: ["r1", "r2", "r4"], exterior: true, void: false, minSide: 1, minArea: 6, maxArea: 11 },
+  { name: "r1", links: ["r0", "r3", "r5", "r6"], exterior: true, void: false, minSide: 2, minArea: 6, maxArea: 8 },
+  { name: "r2", links: ["r0", "r5", "r7", "r3"], exterior: true, void: false, minSide: 3, minArea: 9, maxArea: 15 },
+  { name: "r3", links: ["r1", "r2"], exterior: true, void: false, minSide: 3, minArea: 10, maxArea: 19 },
+  { name: "r4", links: ["r0", "r6"], exterior: false, void: false, minSide: 3, minArea: 11, maxArea: 14 },
+  { name: "r5", links: ["r2", "r1"], exterior: false, void: false, minSide: 2, minArea: 7, maxArea: 16 },
+  { name: "r6", links: ["r4", "r1"], exterior: true, void: false, minSide: 2, minArea: 10, maxArea: 13 },
+  { name: "r7", links: ["r2"], exterior: true, void: false, minSide: 1, minArea: 12, maxArea: 20 },
+];
+const escalated = await solveObjective(walkMissedRooms, "max_area", "loose");
+assert(escalated.option.layout, "loose should escalate when the walk finds nothing");
+assert.equal(validateLoose(escalated.option.layout, walkMissedRooms), "", "escalation should validate");
+
+// Progressive rendering: the first paint is the walk's plant per objective, with no solver
+// involved, and each preview must be a valid loose plant — it is what the page shows while
+// the exact engines still run.
+const previews = walkPreviews(suite.rooms);
+assert.equal(previews.length, OBJECTIVES.length, "one preview per objective");
+for (const preview of previews) {
+  assert.equal(preview.option.status, "preview");
+  assert.equal(preview.option.engine, "loose");
+  assert.equal(validateLoose(preview.option.layout, suite.rooms), "", "preview should be a valid plant");
+}
+const previewOptions = assemble(previews, suite.rooms).options;
+assert.deepEqual(previewOptions.map(option => option.id), OBJECTIVES.map(objective => objective.id));
+
+// Complex regression cases: tests/casa_prado*.json — 12 cômodos com corredor e jardim vazado,
+// e a variante com fachadas e 14 cômodos. Todo motor responde todo objetivo dentro do
+// orçamento: os exatos podem recorrer à caminhada, e a planta vem validada pelo dono dela.
+const pradoFiles = ["casa_prado.json", "casa_prado_b.json", "casa_prado_c.json"];
 const boxArea = option => (option.bounds.maxX - option.bounds.minX) * (option.bounds.maxY - option.bounds.minY);
-for (const engine of engineList) {
-  const result = await solve({ ...prado.input, engine: engine.id });
-  assert.equal(result.ok, true, `casa_prado/${engine.id} should be valid input`);
-  for (const option of result.options) {
-    if (!option.layout) continue;
-    assert.equal(engine.validate(option.layout, prado.input.rooms), "", `casa_prado/${engine.id}/${option.id}`);
-    assert(option.bounds, `casa_prado/${engine.id}/${option.id} should report bounds`);
-  }
-  if (engine.id !== "cp-sat") {
-    assert.deepEqual(
-      result.options.filter(option => option.layout && engine.validate(option.layout, prado.input.rooms) === "").length,
-      3,
-      `casa_prado/${engine.id} should answer every objective`,
-    );
-  }
-  // Every alternative is a valid plant with a topology not already on screen.
-  const shownGraphs = new Set(result.options.filter(option => option.layout).map(option => contactGraph(option.layout)));
-  const alternativeGraphs = new Set();
-  for (const alternative of result.alternatives) {
-    assert.equal(validateLoose(alternative.layout, prado.input.rooms), "", `casa_prado/${engine.id}/${alternative.id}`);
-    assert(alternative.bounds, `casa_prado/${engine.id}/${alternative.id} should report bounds`);
-    const graph = contactGraph(alternative.layout);
-    assert(!shownGraphs.has(graph), `casa_prado/${engine.id}/${alternative.id} repeats an option`);
-    assert(!alternativeGraphs.has(graph), `casa_prado/${engine.id}/${alternative.id} repeats a topology`);
-    alternativeGraphs.add(graph);
-  }
-  if (engine.id === "loose") assert(result.alternatives.length > 0, "casa_prado/loose should offer alternatives");
-  const [smallest, largest] = result.options;
-  if (smallest.layout && largest.layout) {
-    assert(boxArea(smallest) <= boxArea(largest), `casa_prado/${engine.id} should keep min <= max`);
+for (const pradoFile of pradoFiles) {
+  const prado = JSON.parse(readFileSync(new URL(`./tests/${pradoFile}`, import.meta.url), "utf8"));
+  for (const engine of engineList) {
+    const tag = `${pradoFile}/${engine.id}`;
+    const result = await solve({ ...prado.input, engine: engine.id });
+    assert.equal(result.ok, true, `${tag} should be valid input`);
+    // The original case answers every objective; the harder variants may run out of budget,
+    // and then the card must say why instead of coming back blank.
+    const strict = pradoFile === "casa_prado.json";
+    for (const option of result.options) {
+      if (!option.layout) {
+        assert(["unknown", "infeasible", "failed"].includes(option.status), `${tag}/${option.id} must explain the blank card`);
+        if (strict) assert.fail(`${tag}/${option.id} should answer`);
+        continue;
+      }
+      assert.equal(validator(option)(option.layout, prado.input.rooms), "", `${tag}/${option.id}`);
+      assert(option.bounds, `${tag}/${option.id} should report bounds`);
+    }
+    // Every alternative is a valid plant with a topology not already on screen.
+    const shownGraphs = new Set(result.options.filter(option => option.layout).map(option => contactGraph(option.layout)));
+    const alternativeGraphs = new Set();
+    for (const alternative of result.alternatives) {
+      assert.equal(validateLoose(alternative.layout, prado.input.rooms), "", `${tag}/${alternative.id}`);
+      assert(alternative.bounds, `${tag}/${alternative.id} should report bounds`);
+      const graph = contactGraph(alternative.layout);
+      assert(!shownGraphs.has(graph), `${tag}/${alternative.id} repeats an option`);
+      assert(!alternativeGraphs.has(graph), `${tag}/${alternative.id} repeats a topology`);
+      alternativeGraphs.add(graph);
+    }
+    // The gallery comes from the walk; it exists when the walk can place this plan.
+    if (engine.id === "loose" && walkPreviews(prado.input.rooms).every(preview => preview.option.layout)) {
+      assert(result.alternatives.length > 0, `${tag} should offer alternatives`);
+    }
+    const [smallest, largest] = result.options;
+    if (smallest.layout && largest.layout) {
+      assert(boxArea(smallest) <= boxArea(largest), `${tag} should keep min <= max`);
+    }
   }
 }
 console.log("Engine checks passed.");

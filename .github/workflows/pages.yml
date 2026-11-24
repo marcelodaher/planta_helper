@@ -31,7 +31,7 @@ jobs:
       - name: Assemble site
         run: |
           mkdir -p _site/node_modules/cp-sat-wasm/build/javascript
-          cp index.html app.js style.css generator.mjs engines.mjs layout.mjs samples.mjs _site/
+          cp index.html app.js solver-worker.js style.css generator.mjs engines.mjs layout.mjs samples.mjs _site/
           cp -R node_modules/cp-sat-wasm/build/javascript/browser _site/node_modules/cp-sat-wasm/build/javascript/
           mkdir -p _site/node_modules/cp-sat-wasm/build/javascript/wasm
           cp node_modules/cp-sat-wasm/build/javascript/wasm/cp_sat_runtime*.js \

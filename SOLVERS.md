@@ -2,6 +2,8 @@
 
 Registro do estado atual dos motores de planta depois da rodada de melhorias.
 
+> Atualização posterior: `loose-rect` foi fundido no `loose` — o modelo exato solto virou a primeira tentativa do motor livre e a caminhada heurística é o piso garantido. As tabelas abaixo se referem à rodada em que os três motores existiam.
+
 ## O que mudou
 
 | Área | Antes | Agora |
@@ -52,11 +54,12 @@ npm test                                  # correção, ~30 s, cada motor no cas
 npm run bench                             # qualidade e tempo, orçamento padrão
 npm run bench -- outra_casa.json          # qualquer entrada ou envelope salvo
 PLANTA_SOLVE_SECONDS=5 npm run bench      # orçamento curto
+PLANTA_WORKERS=0 npm run bench            # todas as cores (comportamento de produção no Node)
 ```
 
 ## Armadilhas conhecidas
 
-- O wasm do CP-SAT é single-thread: `numWorkers` não acelera nada (medido com 1, 4 e 8).
+- O wasm do CP-SAT é multi-thread no Node (pthreads via `worker_threads`): sem `PLANTA_WORKERS` ele já usa todas as cores. O ganho não é em wall time — o orçamento é gasto por completo salvo prova de ótimo — e sim em qualidade do incumbente (123–137 m² contra 139,2 m² single-thread no casa_prado, orçamento de 6 s), com variância alta em orçamentos curtos. No navegador sem COOP/COEP (GitHub Pages) é single-thread de verdade; `PLANTA_WORKERS` fixa o número para medições reproduzíveis (o bench usa 1 por padrão).
 - O executor `inline` quebra no Node; o motor usa `executor: "worker"`.
 - O limite por objetivo é de parede: a mesma entrada pode devolver incumbentes diferentes entre execuções. O heurístico é determinístico; o exato não é.
 - O heurístico livre é guloso e não fecha lacunas: no `casa_prado` ele gasta 102 m² de cômodos dentro de uma caixa de 138,6 m² (o recorte em L da caixa não é área morta recuperável). Uma passada de compactação por deslizamento foi implementada e removida: os cômodos já estão encostados, então nenhum movimento é aceito.

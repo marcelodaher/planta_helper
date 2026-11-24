@@ -1,13 +1,31 @@
-import { CpModel, CpSat, LinearExpr } from "cp-sat-wasm";
 import { FACADES, GRID, MAX_ASPECT, MIN_DOOR, OBJECTIVES, bounds, cells, contactGraph, touchesExterior, validateLayout, validateLoose } from "./layout.mjs";
-import { looseEngine, collectLoose } from "./engines.mjs";
+import { collectLoose } from "./engines.mjs";
 
-// Time limit per objective: bigger houses need more search; tests shorten it.
-const SOLVE_MAX_SECONDS = 30;
-const SOLVE_MIN_SECONDS = 5;
+// Load the solver on first use: a module worker cannot resolve the bare "cp-sat-wasm"
+// specifier (import maps do not reach workers), so the browser build is the fallback there.
+let solverModule = null;
+function solver() {
+  solverModule ??= import("cp-sat-wasm").catch(() =>
+    import("./node_modules/cp-sat-wasm/build/javascript/browser/cp-sat.js"));
+  return solverModule;
+}
+
+// The wasm executor runs one job at a time per process and throws on overlap; concurrent
+// callers queue instead. The page never hits this: each objective gets its own worker.
+let solverTail = Promise.resolve();
+function queuedSolve(CpSat, model, options) {
+  const run = solverTail.then(() => CpSat.solve(model, options));
+  solverTail = run.catch(() => {});
+  return run;
+}
+
+// Time limit per objective: the solver always spends the whole budget unless it proves
+// optimality, so the cap is the page's wait, not the search's difficulty. Tests shorten it.
+const SOLVE_MAX_SECONDS = 8;
+const SOLVE_MIN_SECONDS = 3;
 function solveSeconds(rooms) {
   const override = Number(globalThis.process?.env?.PLANTA_SOLVE_SECONDS);
-  return override || Math.min(SOLVE_MAX_SECONDS, Math.max(SOLVE_MIN_SECONDS, rooms.length * 1.5));
+  return override || Math.min(SOLVE_MAX_SECONDS, Math.max(SOLVE_MIN_SECONDS, rooms.length * 0.6));
 }
 
 // Box of a layout, in cells.
@@ -72,15 +90,43 @@ function enforceTouch(model, a, b, limit) {
   model.addExactlyOne(touchBools(model, a, b, limit, "link"));
 }
 
+// Side-range implied by the room limits and the aspect cap. Every bound below holds for
+// any feasible plan, so narrowing the domains can prune but never remove a solution.
+function sideRange(rooms, loose) {
+  const minArea = rooms.reduce((sum, room) => sum + cells(room.minArea), 0);
+  const maxArea = rooms.reduce((sum, room) => sum + cells(room.maxArea), 0);
+  // Tight: the footprint is W·H = A ∈ [Σmin, Σmax] and W ≤ MAX_ASPECT·H, so both sides
+  // sit in [√(Σmin/MAX_ASPECT), √(MAX_ASPECT·Σmax)]. Loose: only W·H ≥ Σmin is implied.
+  const low = Math.max(1, Math.ceil(Math.sqrt(minArea / MAX_ASPECT)));
+  const high = loose ? maxArea : Math.min(maxArea, Math.floor(Math.sqrt(maxArea * MAX_ASPECT)));
+  return { minArea, maxArea, low, high: Math.max(low, high) };
+}
+
+// Interchangeable rooms (same limits, links and flags) are ordered by x+y; the constraint
+// drops mirror-image duplicates without cutting a topology.
+function breakSymmetry(model, variables) {
+  const key = room => JSON.stringify([room.minArea, room.maxArea, room.minSide, room.links, room.facades, room.exterior, room.corridor, room.void]);
+  const groups = new Map();
+  for (const room of variables) groups.set(key(room), [...(groups.get(key(room)) ?? []), room]);
+  for (const group of groups.values()) {
+    for (let index = 1; index < group.length; index++) {
+      const [before, after] = [group[index - 1], group[index]];
+      model.add(before.x.plus(before.y).le(after.x.plus(after.y)));
+    }
+  }
+}
+
 // Build an exact grid model: rooms fit one exterior rectangle without overlap.
 // A tight model tiles the rectangle; a loose model leaves open space inside it.
-function buildModel(rooms, objective, loose = false) {
+// A pinned `box` turns the exterior sides into constants and `objective` null makes the
+// model a pure tiling decision — both far easier for the solver than a free optimization.
+function buildModel(CpModel, LinearExpr, rooms, objective, loose = false, box = null) {
   const model = new CpModel();
-  const maximumArea = rooms.reduce((sum, room) => sum + cells(room.maxArea), 0);
-  const maximumSide = Math.max(1, maximumArea);
-  const exteriorWidth = model.newIntVar(1, maximumSide, "exterior_width");
-  const exteriorHeight = model.newIntVar(1, maximumSide, "exterior_height");
-  const footprint = model.newIntVar(1, maximumArea, "footprint");
+  const { minArea, maxArea, low, high } = sideRange(rooms, loose);
+  const maximumSide = high;
+  const exteriorWidth = model.newIntVar(box?.width ?? low, box?.width ?? high, "exterior_width");
+  const exteriorHeight = model.newIntVar(box?.height ?? low, box?.height ?? high, "exterior_height");
+  const footprint = model.newIntVar(minArea, maxArea, "footprint");
   model.addMultiplicationEquality(footprint, [exteriorWidth, exteriorHeight]);
   // A rotated layout is equivalent unless a room needs a named facade; then the compass matters.
   const oriented = rooms.some(room => room.facades?.length);
@@ -96,13 +142,15 @@ function buildModel(rooms, objective, loose = false) {
 
   const variables = rooms.map(room => {
     const min = Math.ceil(room.minSide * GRID);
-    const width = model.newIntVar(min, maximumSide, `${room.name}_width`);
-    const height = model.newIntVar(min, maximumSide, `${room.name}_height`);
+    // area = w·h ≤ maxArea with h ≥ min, so neither side can pass maxArea/min.
+    const widest = Math.max(min, Math.min(maximumSide, Math.floor(cells(room.maxArea) / min)));
+    const width = model.newIntVar(min, widest, `${room.name}_width`);
+    const height = model.newIntVar(min, widest, `${room.name}_height`);
     const area = model.newIntVar(cells(room.minArea), cells(room.maxArea), `${room.name}_area`);
-    const x = model.newIntVar(0, maximumSide, `${room.name}_x`);
-    const y = model.newIntVar(0, maximumSide, `${room.name}_y`);
-    const endX = model.newIntVar(0, maximumSide, `${room.name}_end_x`);
-    const endY = model.newIntVar(0, maximumSide, `${room.name}_end_y`);
+    const x = model.newIntVar(0, Math.max(0, maximumSide - min), `${room.name}_x`);
+    const y = model.newIntVar(0, Math.max(0, maximumSide - min), `${room.name}_y`);
+    const endX = model.newIntVar(min, maximumSide, `${room.name}_end_x`);
+    const endY = model.newIntVar(min, maximumSide, `${room.name}_end_y`);
     model.addMultiplicationEquality(area, [width, height]);
     model.addEquality(endX, x.plus(width));
     model.addEquality(endY, y.plus(height));
@@ -115,6 +163,7 @@ function buildModel(rooms, objective, loose = false) {
     variables.map(room => model.newIntervalVar(room.x, room.width, room.endX, `${room.name}_x_interval`)),
     variables.map(room => model.newIntervalVar(room.y, room.height, room.endY, `${room.name}_y_interval`)),
   );
+  breakSymmetry(model, variables);
   const roomArea = LinearExpr.sum(variables.map(room => room.area));
   if (loose) model.add(footprint.ge(roomArea));
   else model.addEquality(footprint, roomArea);
@@ -156,15 +205,22 @@ function buildModel(rooms, objective, loose = false) {
   const area = loose ? roomArea : footprint;
   if (objective === "min") model.minimize(footprint.times(tieBreaker).plus(corridorArea));
   if (objective === "max") model.maximize(area.times(tieBreaker).minus(corridorArea).minus(loose ? footprint : 0));
-  if (objective === "corridor") model.minimize(corridorArea.times(maximumArea + 1).minus(area).plus(loose ? footprint : 0));
+  if (objective === "corridor") model.minimize(corridorArea.times(maxArea + 1).minus(area).plus(loose ? footprint : 0));
   return { model, variables, exteriorWidth, exteriorHeight, limit: maximumSide };
 }
 
 // Exact engine: CP-SAT proves the best layout or reports the best one found.
-async function cpSatSolve(rooms, objective, { loose = false, hint = null, seconds = solveSeconds(rooms) } = {}) {
-  const { model, variables, exteriorWidth, exteriorHeight, limit } = buildModel(rooms, objective, loose);
+async function cpSatSolve(rooms, objective, { loose = false, hint = null, seconds = solveSeconds(rooms), box = null } = {}) {
+  const { CpModel, CpSat, LinearExpr } = await solver();
+  const { model, variables, exteriorWidth, exteriorHeight, limit } = buildModel(CpModel, LinearExpr, rooms, objective, loose, box);
   applyHint(model, variables, exteriorWidth, exteriorHeight, limit, hint, rooms.some(room => room.facades?.length));
-  const result = await CpSat.solve(model, { executor: "worker", maxTimeInSeconds: seconds });
+  // Node already uses every core; a pinned worker count exists for reproducible benches.
+  const workers = Number(globalThis.process?.env?.PLANTA_WORKERS);
+  const result = await queuedSolve(CpSat, model, {
+    executor: "worker",
+    maxTimeInSeconds: seconds,
+    ...(workers ? { numWorkers: workers } : {}),
+  });
   if (!result.hasSolution) return { status: result.statusName().toLowerCase(), layout: null };
   return {
     status: result.statusName().toLowerCase(),
@@ -186,36 +242,75 @@ async function cpSatSolve(rooms, objective, { loose = false, hint = null, second
   };
 }
 
+// The largest house by box enumeration: the footprint is W·H = Σárea ≤ Σmax, so any
+// tiling of a W·H = Σmax box is the proven maximum area — no optimization run can beat
+// the ceiling. Squarest boxes first: a box that tiles decides in seconds, one that
+// cannot stalls, so each box gets a share of the budget and the first answer wins.
+// When no box tiles, the caller falls back to the free-box model: the true optimum can
+// sit below Σmax when the Σmax rectangle itself cannot be tiled by the rooms.
+// The corridor tie-break is left unoptimized: the box is chosen for area, not for it.
+async function maxByBoxes(rooms, hint, seconds) {
+  const { maxArea, low, high } = sideRange(rooms, false);
+  const oriented = rooms.some(room => room.facades?.length);
+  const boxes = [];
+  for (let width = low; width <= Math.min(high, Math.floor(maxArea / low)); width++) {
+    if (maxArea % width) continue;
+    const height = maxArea / width;
+    if (height < low || height > high) continue;
+    if (width > MAX_ASPECT * height || height > MAX_ASPECT * width) continue;
+    if (!oriented && width < height) continue;
+    boxes.push({ width, height });
+  }
+  boxes.sort((a, b) => Math.abs(a.width - a.height) - Math.abs(b.width - b.height));
+  const tries = Math.min(boxes.length, Math.max(1, Math.floor(seconds / 1.5)));
+  for (const box of boxes.slice(0, tries)) {
+    const result = await cpSatSolve(rooms, null, { box, hint, seconds: Math.max(1.5, seconds / tries) });
+    if (result.layout) return { ...result, status: "optimal" };
+  }
+  return { status: "unknown", layout: null };
+}
+
 const cpSatEngine = {
   id: "cp-sat",
   label: "CP-SAT",
   description: "Busca exata; pode comprovar o ótimo, mas demora mais.",
   exact: true,
   validate: validateLayout,
-  solve: (rooms, objective, hint) => cpSatSolve(rooms, objective, { hint }),
+  solve: async (rooms, objective, hint) => {
+    if (objective !== "max") return cpSatSolve(rooms, objective, { hint });
+    // Boxes first (proven ceiling); if none tiles, the free-box model hunts the optimum
+    // that sits below Σmax — at the cost of a second budget on this objective alone.
+    const boxed = await maxByBoxes(rooms, hint, solveSeconds(rooms));
+    return boxed.layout ? boxed : cpSatSolve(rooms, objective, { hint });
+  },
 };
 
-// Exact loose engine: the tight model first (a tight layout is also a valid loose one),
-// then the rectangular model with open space, then the loose heuristic.
-const looseRectEngine = {
-  id: "loose-rect",
-  label: "Livre retangular",
-  description: "Retângulo externo com espaços livres; usa CP-SAT e recorre ao heurístico livre se necessário.",
+// Loose engine merged into one: the exact loose model answers (a rectangle with open
+// space), the walk is the guaranteed floor, and no- answer carries the solver's verdict.
+export const looseEngine = {
+  id: "loose",
+  label: "Livre",
+  description: "Formatos em L ou irregulares: modelo exato com espaços livres e a caminhada heurística como resposta garantida.",
   exact: true,
   validate: validateLoose,
   solve: async (rooms, objective, hint) => {
     const budget = solveSeconds(rooms);
-    const tight = await cpSatSolve(rooms, objective, { hint, seconds: budget });
-    if (tight.layout && validateLayout(tight.layout, rooms) === "") return tight;
+    if (objective === "max") {
+      // A tight Σmax tiling is also the best loose plan, and the boxes prove it fast.
+      const boxed = await maxByBoxes(rooms, hint, budget);
+      if (boxed.layout) return boxed;
+    }
     const exact = await cpSatSolve(rooms, objective, { loose: true, hint, seconds: budget });
     if (exact.layout && validateLoose(exact.layout, rooms) === "") return exact;
-    return looseEngine.solve(rooms, objective, hint);
+    const [walked] = collectLoose(rooms, objective);
+    if (walked) return { status: "loose", layout: walked };
+    // A solver plant our own validator rejects is not an answer: never echo its "feasible".
+    return { status: exact.layout ? "failed" : exact.status, layout: null };
   },
 };
 
 export const engines = {
   "cp-sat": cpSatEngine,
-  "loose-rect": looseRectEngine,
   loose: looseEngine,
 };
 
@@ -233,18 +328,33 @@ function annotate(layout, rooms, boundsBox) {
   };
 }
 
+// Keep only box-shaped entries of a persisted warm start: storage can hold anything.
+function usableWarm(warm, rooms) {
+  if (!Array.isArray(warm)) return null;
+  const boxes = warm.slice(0, rooms.length).filter(room => room && typeof room.room === "string" &&
+    [room.x, room.y, room.w, room.h].every(Number.isInteger));
+  return boxes.length ? boxes : null;
+}
+
 // Run one engine, then validate and annotate the layout.
-// Seeds are tried in order until one engine run returns a layout.
-async function finalize(engine, rooms, objective, seeds = []) {
-  let result = await engine.solve(rooms, objective, seeds[0] ?? null);
+// Seeds are tried in order until one engine run returns a layout; a time-limited exact run
+// that finds nothing hands the card back to the walk, which already validated a plant.
+// A warm start is a hint only, and only for the exact engines: the heuristic would echo it.
+async function finalize(engine, rooms, objective, seeds = [], warm = null) {
+  const hint = engine.exact ? usableWarm(warm, rooms) : null;
+  let result = await engine.solve(rooms, objective, hint ? { layout: hint } : seeds[0] ?? null);
   for (const seed of seeds.slice(1)) {
     if (result.layout) break;
     result = await engine.solve(rooms, objective, seed);
   }
   const { status, layout, bounds: box } = result;
-  if (!layout) return { status, layout: null };
+  const asWalk = () => {
+    const walked = seeds.map(seed => seed?.layout).find(candidate => candidate && validateLoose(candidate, rooms) === "");
+    return walked ? { status: "loose", engine: looseEngine.id, ...annotate(walked, rooms) } : null;
+  };
+  if (!layout) return asWalk() ?? { status, layout: null };
   const error = engine.validate(layout, rooms);
-  if (error) return { status: "failed", layout: null, error };
+  if (error) return asWalk() ?? { status: "failed", layout: null, error };
   return { status, ...annotate(layout, rooms, box) };
 }
 
@@ -285,34 +395,60 @@ function gallery(options, found, rooms) {
   }));
 }
 
-export async function generateOptions({ rooms, engine = "cp-sat" }) {
-  const chosen = engines[engine] ?? cpSatEngine;
-  const options = [];
-  const carried = [];
-  const found = new Map(OBJECTIVES.map(objective => [objective.id, []]));
-  for (const objective of OBJECTIVES) {
-    // The loose walk both seeds the exact engines and supplies the alternatives.
-    const candidates = collectLoose(rooms, objective.key, ALTERNATIVES_BUDGET);
-    found.get(objective.id).push(...candidates);
-    // The best heuristic plant seeds the exact model and is the heuristic fallback;
-    // the previous exact layout is the second hint.
-    const seeds = [candidates[0] ? { layout: candidates[0] } : null, ...carried].filter(Boolean);
-    const option = {
-      id: objective.id,
-      label: objective.label,
-      engine: chosen.id,
-      ...(await finalize(chosen, rooms, objective.key, seeds)),
+// One objective on its own: the loose walk seeds the engine and feeds the gallery, so a
+// worker can run a whole objective without touching the other two.
+// `warm` is the plant this objective returned last time; it only hints the exact engines.
+export async function solveObjective(rooms, objectiveId, engineId, warm = null) {
+  const objective = OBJECTIVES.find(item => item.id === objectiveId) ?? OBJECTIVES[0];
+  const chosen = engines[engineId] ?? cpSatEngine;
+  const candidates = collectLoose(rooms, objective.key, ALTERNATIVES_BUDGET);
+  const seeds = candidates[0] ? [{ layout: candidates[0] }] : [];
+  const option = {
+    id: objective.id,
+    label: objective.label,
+    engine: chosen.id,
+    ...(await finalize(chosen, rooms, objective.key, seeds, warm)),
+  };
+  return { option, candidates };
+}
+
+// Walk-only plants for the page's first paint: the walk is fast (well under a second per
+// objective), so the preview needs no solver and cannot be lost to a worker protocol. The
+// exact answer replaces it in place; an objective the walk cannot place stays "pending".
+export function walkPreviews(rooms) {
+  return OBJECTIVES.map(objective => {
+    const [layout] = collectLoose(rooms, objective.key, ALTERNATIVES_BUDGET);
+    return {
+      option: {
+        id: objective.id,
+        label: objective.label,
+        engine: looseEngine.id,
+        status: layout ? "preview" : "pending",
+        ...(layout ? annotate(layout, rooms) : { layout: null }),
+      },
+      candidates: [],
     };
-    options.push(option);
-    if (option.layout) carried.unshift({ layout: option.layout, bounds: option.bounds });
-  }
+  });
+}
+
+// Merge per-objective results in objective order, then the alternatives gallery.
+export function assemble(results, rooms) {
+  const options = results.map(result => result.option);
   // Keep "menor" no larger than "maior" even when a heuristic finds both.
   const [smallest, largest] = [options[0], options[1]];
-  if (smallest.layout && largest.layout && optionArea(smallest) > optionArea(largest)) {
-    options[0] = { ...smallest, layout: largest.layout, bounds: largest.bounds, status: largest.status };
-    options[1] = { ...largest, layout: smallest.layout, bounds: smallest.bounds, status: smallest.status };
+  if (smallest?.layout && largest?.layout && optionArea(smallest) > optionArea(largest)) {
+    options[0] = { ...smallest, layout: largest.layout, bounds: largest.bounds, status: largest.status, engine: largest.engine };
+    options[1] = { ...largest, layout: smallest.layout, bounds: smallest.bounds, status: smallest.status, engine: smallest.engine };
   }
+  const found = new Map(OBJECTIVES.map((objective, index) => [objective.id, results[index]?.candidates ?? []]));
   return { options, alternatives: gallery(options, found, rooms) };
+}
+
+// Sequential path: CLI, tests, and the page when workers are unavailable.
+export async function generateOptions({ rooms, engine = "cp-sat", warm = {} }) {
+  const results = [];
+  for (const objective of OBJECTIVES) results.push(await solveObjective(rooms, objective.id, engine, warm?.[objective.id]));
+  return assemble(results, rooms);
 }
 
 export function validate(rooms) {
@@ -344,10 +480,12 @@ export function validate(rooms) {
   return "";
 }
 
-// Validate first, then run the chosen engine asynchronously in browser and CLI.
-export async function solve(input) {
-  if (!input || typeof input !== "object") return { ok: false, error: "A entrada precisa ser um objeto JSON." };
-  if (!Array.isArray(input.rooms)) return { ok: false, error: "rooms precisa ser uma lista." };
+// Normalize and validate a request; shared by the page, its workers and the CLI.
+// `warm` (plant of the previous generation, per objective) is untrusted: keep only
+// box-shaped layouts, and let the exact engines treat them as hints, never answers.
+export function prepare(input) {
+  if (!input || typeof input !== "object") return { error: "A entrada precisa ser um objeto JSON." };
+  if (!Array.isArray(input.rooms)) return { error: "rooms precisa ser uma lista." };
   const rooms = input.rooms.map(room => room && ({
     ...room,
     minSide: room.minSide ?? input.minSide,
@@ -356,7 +494,22 @@ export async function solve(input) {
     facades: room.facades ?? [],
   }));
   const error = validate(rooms);
+  if (error) return { error };
+  const warm = {};
+  if (input.warm && typeof input.warm === "object" && !Array.isArray(input.warm)) {
+    for (const objective of OBJECTIVES) {
+      const boxes = usableWarm(input.warm[objective.id], rooms);
+      if (boxes) warm[objective.id] = boxes;
+    }
+  }
+  // "loose-rect" was folded into "loose"; keep old envelopes working.
+  const engine = engines[input.engine] ? input.engine : input.engine === "loose-rect" ? "loose" : "cp-sat";
+  return { rooms, engine, warm };
+}
+
+// Validate first, then run the chosen engine asynchronously in browser and CLI.
+export async function solve(input) {
+  const { rooms, engine, warm, error } = prepare(input);
   if (error) return { ok: false, error };
-  const engine = engines[input.engine] ? input.engine : "cp-sat";
-  return { ok: true, engine, ...(await generateOptions({ rooms, engine })) };
+  return { ok: true, engine, ...(await generateOptions({ rooms, engine, warm })) };
 }

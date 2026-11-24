@@ -1,5 +1,5 @@
-import { solve, validate, engineList } from "./generator.mjs";
-import { FACADES } from "./layout.mjs";
+import { solve, prepare, assemble, validate, walkPreviews, engineList } from "./generator.mjs";
+import { FACADES, OBJECTIVES } from "./layout.mjs";
 import { samples } from "./samples.mjs";
 
 const roomList = document.querySelector("#rooms");
@@ -32,6 +32,9 @@ engineSelect.addEventListener("change", () => {
   saveState();
 });
 engineDescription.textContent = engineList[0].description;
+// Build marker: check `document.body.dataset.version` in the console to tell a stale
+// cached bundle from a real bug.
+document.body.dataset.version = "preview-4";
 
 // Theme: index.html picks the saved or system theme before first paint; the
 // switch flips it and remembers the choice. Diagrams keep light paper.
@@ -318,6 +321,28 @@ function restoreState() {
   }
 }
 
+// Last generation's plant per objective; the next run hands it to CP-SAT as a warm start.
+// The hint is soft, so a stale or corrupt entry only costs the solver a repair.
+const HINTS_KEY = "planta-hints";
+function saveHints(results) {
+  try {
+    const hints = Object.fromEntries(results
+      .filter(result => result.option.layout)
+      .map(result => [result.option.id, result.option.layout]));
+    localStorage.setItem(HINTS_KEY, JSON.stringify(hints));
+  } catch {}
+}
+
+// Read the stored hints; an unusable payload degrades to no hint at all.
+function loadHints() {
+  try {
+    const hints = JSON.parse(localStorage.getItem(HINTS_KEY));
+    return hints && typeof hints === "object" && !Array.isArray(hints) ? hints : {};
+  } catch {
+    return {};
+  }
+}
+
 // Display the three best options, then the revealed share of the bottom gallery.
 function showOptions(options, others = []) {
   bestOptions = options;
@@ -353,6 +378,8 @@ const STATUS_LABELS = {
   optimal: "ótimo comprovado",
   feasible: "melhor encontrado",
   loose: "formato livre",
+  preview: "prévia da caminhada; o exato está calculando",
+  pending: "calculando",
   infeasible: "impossível",
   unknown: "indeterminado",
   failed: "não encontrado",
@@ -364,7 +391,9 @@ function engineLabel(id) {
 }
 
 function render(option) {
-  if (!option.layout) return `<article class="option"><h2>${option.label}</h2><p>Não foi encontrada uma opção nesta busca (${escapeHTML(STATUS_LABELS[option.status] ?? option.status)}).</p></article>`;
+  if (!option.layout) return option.status === "pending"
+    ? `<article class="option"><h2>${option.label}</h2><p>Calculando…</p></article>`
+    : `<article class="option"><h2>${option.label}</h2><p>Não foi encontrada uma opção nesta busca (${escapeHTML(STATUS_LABELS[option.status] ?? option.status)}).</p></article>`;
   // North is always up, so the plan is never rotated and facade names stay meaningful.
   const bounds = option.bounds ?? {
     minX: Math.min(...option.layout.map(room => room.x)),
@@ -475,12 +504,81 @@ connectionGraph.addEventListener("keydown", event => {
   openGraph();
 });
 document.querySelector("#graph-close").addEventListener("click", () => graphDialog.close());
+// One worker per objective, each with its own CP-SAT runtime; the three run at once.
+// Each worker gets its objective's previous plant as a warm start. Every final result is
+// handed to `onFinal` immediately, so a card is never held back by its slower siblings.
+async function solveInWorkers(prepared, hints, onFinal = () => {}) {
+  const ids = OBJECTIVES.map(objective => objective.id);
+  const workers = ids.map(() => new Worker(new URL("./solver-worker.js", import.meta.url), { type: "module" }));
+  try {
+    const results = await Promise.all(ids.map((objective, index) => new Promise((resolve, reject) => {
+      workers[index].onmessage = ({ data }) => {
+        if (!data.ok) {
+          reject(new Error(data.error));
+          return;
+        }
+        resolve(data.result);
+        onFinal(index, data.result);
+      };
+      workers[index].onerror = event => reject(event.error ?? new Error(event.message || "Worker failed."));
+      workers[index].postMessage({ rooms: prepared.rooms, objective, engine: prepared.engine, warm: hints[objective] });
+    })));
+    // Store per objective before assembling: assemble may swap the min and max plants.
+    saveHints(results);
+    return assemble(results, prepared.rooms);
+  } finally {
+    for (const worker of workers) worker.terminate();
+  }
+}
+
+// Browser entry point: parallel objectives, with the sequential path as a fallback for
+// browsers that refuse the worker module. The warm start rides the shared input so the
+// fallback behaves like the workers.
+async function compute(input, onFinal) {
+  const prepared = prepare(input);
+  if (prepared.error) return { ok: false, error: prepared.error };
+  const hints = loadHints();
+  try {
+    return { ok: true, engine: prepared.engine, ...(await solveInWorkers(prepared, hints, onFinal)) };
+  } catch (error) {
+    // Silent fallbacks hide real worker bugs, so say which path ran.
+    console.warn("Workers unavailable; solving sequentially.", error);
+    return solve({ ...input, warm: hints });
+  }
+}
+
+// The overlay takes a frame, the walk holds the main thread for under a second: yield
+// first so the user sees why the page is busy, then paint the previews.
+const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+
 document.querySelector("#planner").addEventListener("submit", async event => {
   event.preventDefault();
   results.replaceChildren();
+  shownAlternatives = 0;
   setBusy("Calculando opções…");
   try {
-    const result = await solve({ rooms: roomData, engine: engineSelect.value });
+    await nextFrame();
+    const preparedInput = prepare({ rooms: roomData });
+    if (preparedInput.error) {
+      message.textContent = preparedInput.error;
+      return;
+    }
+    // First paint: the walk plant per objective, no solver involved. An objective the walk
+    // cannot place keeps a "calculando" card until its own worker answers.
+    const slots = walkPreviews(preparedInput.rooms);
+    const publish = () => {
+      bestOptions = assemble(slots, preparedInput.rooms).options;
+      renderResults();
+    };
+    publish();
+    message.textContent = "Prévia pela caminhada. O solver exato está calculando…";
+    clearBusy();
+    // Each arriving objective replaces its slot and repaints: the slowest card never
+    // holds the others hostage.
+    const result = await compute({ rooms: roomData, engine: engineSelect.value }, (index, finished) => {
+      slots[index] = finished;
+      publish();
+    });
     if (!result.ok) {
       message.textContent = result.error;
       return;

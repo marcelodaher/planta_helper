@@ -212,18 +212,5 @@ export function collectLoose(rooms, objective, budget = 300) {
   return believable.length ? believable : ranked.slice(0, 1);
 }
 
-// Loose engine: the best plant from the walk; the remaining topologies are exhibitions.
-// A hint is already the best plant of that walk, so it avoids a second pass.
-function looseSolve(rooms, objective, hint) {
-  if (hint?.layout) return { status: "loose", layout: hint.layout };
-  const [layout] = collectLoose(rooms, objective);
-  return layout ? { status: "loose", layout } : { status: "failed", layout: null };
-}
-
-export const looseEngine = {
-  id: "loose",
-  label: "Livre",
-  description: "Permite planta em L ou outro formato; não exige retângulo externo.",
-  validate: validateLoose,
-  solve: looseSolve,
-};
+// The walk's plant is the guaranteed answer inside the loose engine (generator.mjs);
+// this module stays solver-free: pure JavaScript, no CP-SAT import.

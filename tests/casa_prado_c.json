@@ -1,0 +1,239 @@
+{
+  "format": "planta-helper",
+  "version": 3,
+  "engine": "cp-sat",
+  "input": {
+    "rooms": [
+      {
+        "name": "sala_jantar",
+        "links": [
+          "cozinha",
+          "varanda_sala",
+          "sala_tv"
+        ],
+        "facades": [
+          "north"
+        ],
+        "exterior": true,
+        "void": false,
+        "corridor": false,
+        "color": "purple",
+        "minArea": 12,
+        "maxArea": 16,
+        "minSide": 3
+      },
+      {
+        "name": "sala_tv",
+        "links": [
+          "sala_jantar"
+        ],
+        "facades": [],
+        "exterior": false,
+        "void": false,
+        "corridor": false,
+        "color": "purple",
+        "minArea": 12,
+        "maxArea": 15,
+        "minSide": 3
+      },
+      {
+        "name": "cozinha",
+        "links": [
+          "sala_jantar",
+          "corredor",
+          "servico",
+          "dispensa"
+        ],
+        "facades": [
+          "west"
+        ],
+        "exterior": true,
+        "void": false,
+        "corridor": false,
+        "color": "orange",
+        "minArea": 12,
+        "maxArea": 16,
+        "minSide": 2.5
+      },
+      {
+        "name": "dispensa",
+        "links": [
+          "cozinha",
+          "servico"
+        ],
+        "facades": [
+          "south"
+        ],
+        "exterior": true,
+        "void": false,
+        "corridor": false,
+        "color": "orange",
+        "minArea": 3,
+        "maxArea": 4,
+        "minSide": 1.8
+      },
+      {
+        "name": "servico",
+        "links": [
+          "cozinha",
+          "corredor",
+          "dispensa"
+        ],
+        "facades": [
+          "south"
+        ],
+        "exterior": true,
+        "void": false,
+        "corridor": false,
+        "color": "yellow",
+        "minArea": 8,
+        "maxArea": 12,
+        "minSide": 2
+      },
+      {
+        "name": "corredor",
+        "links": [
+          "cozinha",
+          "escritorio",
+          "quarto_visitas",
+          "suite",
+          "servico",
+          "lavabo"
+        ],
+        "facades": [],
+        "exterior": false,
+        "void": false,
+        "corridor": true,
+        "color": "gray",
+        "minArea": 2,
+        "maxArea": 10,
+        "minSide": 1
+      },
+      {
+        "name": "escritorio",
+        "links": [
+          "patio interno",
+          "corredor"
+        ],
+        "exterior": true,
+        "corridor": false,
+        "color": "pink",
+        "minArea": 9,
+        "maxArea": 12,
+        "minSide": 2.5,
+        "void": false,
+        "facades": []
+      },
+      {
+        "name": "quarto_visitas",
+        "links": [
+          "corredor"
+        ],
+        "exterior": true,
+        "corridor": false,
+        "color": "pink",
+        "minArea": 8,
+        "maxArea": 12,
+        "minSide": 1.2,
+        "void": false,
+        "facades": []
+      },
+      {
+        "name": "lavabo",
+        "links": [
+          "corredor",
+          "wc"
+        ],
+        "facades": [],
+        "exterior": false,
+        "void": false,
+        "corridor": false,
+        "color": "blue",
+        "minArea": 4,
+        "maxArea": 6,
+        "minSide": 1.5
+      },
+      {
+        "name": "suite",
+        "links": [
+          "varanda_suite",
+          "corredor",
+          "wc"
+        ],
+        "facades": [
+          "north"
+        ],
+        "exterior": true,
+        "void": false,
+        "corridor": false,
+        "color": "pink",
+        "minArea": 11,
+        "maxArea": 15,
+        "minSide": 3
+      },
+      {
+        "name": "wc",
+        "links": [
+          "suite",
+          "lavabo"
+        ],
+        "facades": [],
+        "exterior": false,
+        "void": false,
+        "corridor": false,
+        "color": "blue",
+        "minArea": 4.2,
+        "maxArea": 5,
+        "minSide": 1.5
+      },
+      {
+        "name": "patio interno",
+        "links": [
+          "escritorio"
+        ],
+        "facades": [
+          "north"
+        ],
+        "exterior": true,
+        "void": true,
+        "corridor": false,
+        "color": "green",
+        "minArea": 8,
+        "maxArea": 15,
+        "minSide": 3
+      },
+      {
+        "name": "varanda_sala",
+        "links": [
+          "sala_jantar"
+        ],
+        "facades": [
+          "north"
+        ],
+        "exterior": true,
+        "void": false,
+        "corridor": false,
+        "color": "green",
+        "minArea": 12,
+        "maxArea": 16,
+        "minSide": 2.5
+      },
+      {
+        "name": "varanda_suite",
+        "links": [
+          "suite"
+        ],
+        "facades": [
+          "north"
+        ],
+        "exterior": true,
+        "void": false,
+        "corridor": false,
+        "color": "green",
+        "minArea": 8,
+        "maxArea": 12,
+        "minSide": 2.5
+      }
+    ]
+  }
+}

@@ -1,0 +1,197 @@
+{
+  "format": "planta-helper",
+  "version": 3,
+  "engine": "cp-sat",
+  "input": {
+    "rooms": [
+      {
+        "name": "sala_jantar",
+        "links": [
+          "sala_tv",
+          "cozinha"
+        ],
+        "exterior": true,
+        "corridor": false,
+        "color": "purple",
+        "minArea": 12,
+        "maxArea": 20,
+        "minSide": 3,
+        "void": false,
+        "facades": []
+      },
+      {
+        "name": "sala_tv",
+        "links": [
+          "sala_jantar",
+          "jardim"
+        ],
+        "exterior": true,
+        "corridor": false,
+        "color": "purple",
+        "minArea": 12,
+        "maxArea": 20,
+        "minSide": 3,
+        "void": false,
+        "facades": []
+      },
+      {
+        "name": "cozinha",
+        "links": [
+          "sala_jantar",
+          "dispensa",
+          "corredor"
+        ],
+        "facades": [
+          "west"
+        ],
+        "exterior": true,
+        "void": false,
+        "corridor": false,
+        "color": "orange",
+        "minArea": 12,
+        "maxArea": 16,
+        "minSide": 2.5
+      },
+      {
+        "name": "dispensa",
+        "links": [
+          "cozinha"
+        ],
+        "facades": [
+          "south"
+        ],
+        "exterior": true,
+        "void": false,
+        "corridor": false,
+        "color": "orange",
+        "minArea": 6,
+        "maxArea": 12,
+        "minSide": 1.8
+      },
+      {
+        "name": "servico",
+        "links": [
+          "corredor"
+        ],
+        "facades": [
+          "south"
+        ],
+        "exterior": true,
+        "void": false,
+        "corridor": false,
+        "color": "yellow",
+        "minArea": 8,
+        "maxArea": 12,
+        "minSide": 2
+      },
+      {
+        "name": "corredor",
+        "links": [
+          "cozinha",
+          "servico",
+          "escritorio",
+          "quarto_visitas",
+          "lavabo",
+          "quarto"
+        ],
+        "facades": [],
+        "exterior": false,
+        "void": false,
+        "corridor": true,
+        "color": "gray",
+        "minArea": 2,
+        "maxArea": 12,
+        "minSide": 1
+      },
+      {
+        "name": "escritorio",
+        "links": [
+          "corredor"
+        ],
+        "exterior": true,
+        "corridor": false,
+        "color": "pink",
+        "minArea": 9,
+        "maxArea": 12,
+        "minSide": 2.5,
+        "void": false,
+        "facades": []
+      },
+      {
+        "name": "quarto_visitas",
+        "links": [
+          "corredor"
+        ],
+        "exterior": true,
+        "corridor": false,
+        "color": "pink",
+        "minArea": 8,
+        "maxArea": 12,
+        "minSide": 1.2,
+        "void": false,
+        "facades": []
+      },
+      {
+        "name": "lavabo",
+        "links": [
+          "corredor"
+        ],
+        "exterior": true,
+        "corridor": false,
+        "color": "blue",
+        "minArea": 3,
+        "maxArea": 8,
+        "minSide": 1.5,
+        "void": false,
+        "facades": []
+      },
+      {
+        "name": "quarto",
+        "links": [
+          "jardim",
+          "corredor",
+          "wc"
+        ],
+        "facades": [
+          "north"
+        ],
+        "exterior": true,
+        "void": false,
+        "corridor": false,
+        "color": "pink",
+        "minArea": 15,
+        "maxArea": 20,
+        "minSide": 3
+      },
+      {
+        "name": "wc",
+        "links": [
+          "quarto"
+        ],
+        "facades": [],
+        "exterior": true,
+        "void": false,
+        "corridor": false,
+        "color": "blue",
+        "minArea": 4,
+        "maxArea": 8,
+        "minSide": 1.6
+      },
+      {
+        "name": "jardim",
+        "links": [
+          "sala_tv",
+          "quarto"
+        ],
+        "exterior": true,
+        "void": true,
+        "corridor": false,
+        "color": "green",
+        "minArea": 8,
+        "maxArea": 30,
+        "minSide": 3,
+        "facades": []
+      }
+    ]
+  }
+}
