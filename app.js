@@ -29,6 +29,7 @@ engineSelect.innerHTML = engineList.map(engine =>
   `<option value="${escapeHTML(engine.id)}">${escapeHTML(engine.label)}</option>`).join("");
 engineSelect.addEventListener("change", () => {
   engineDescription.textContent = engineList.find(engine => engine.id === engineSelect.value)?.description ?? "";
+  saveState();
 });
 engineDescription.textContent = engineList[0].description;
 
@@ -75,6 +76,7 @@ function renderRoomList() {
     </li>`;
   }).join("");
   renderConnectionGraph();
+  saveState();
 }
 
 // Position graph nodes with springs and repulsion, then separate overlapping bubbles.
@@ -290,6 +292,30 @@ function loadInput(input) {
   renderRoomList();
   results.replaceChildren();
   message.textContent = "Entradas carregadas. Você pode editar e gerar opções.";
+}
+
+// Persist the editable inputs so a reload never loses work; storage may be off.
+const STATE_KEY = "planta-state";
+function saveState() {
+  try {
+    localStorage.setItem(STATE_KEY, JSON.stringify({ rooms: roomData, engine: engineSelect.value }));
+  } catch {}
+}
+
+// Restore the last session's inputs; false when nothing usable was stored.
+function restoreState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STATE_KEY));
+    if (!Array.isArray(saved?.rooms)) return false;
+    if (engineList.some(engine => engine.id === saved.engine)) {
+      engineSelect.value = saved.engine;
+      engineSelect.dispatchEvent(new Event("change"));
+    }
+    loadInput({ rooms: saved.rooms });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // Display the three best options, then the revealed share of the bottom gallery.
@@ -514,4 +540,5 @@ document.querySelector("#samples").addEventListener("change", event => {
   if (sample) loadInput(sample.input);
 });
 
-loadInput(samples.at(-1).input);
+// Restore the previous session, falling back to the last example on first visit.
+if (!restoreState()) loadInput(samples.at(-1).input);
